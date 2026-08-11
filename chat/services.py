@@ -1,6 +1,6 @@
 from rag.rag_agent import RAGAgent
 from rag.retriever import Retriever
-from rag.llm_wrapper import OpenRouterLLM
+from rag.llm_wrapper import DEFAULT_MODEL, OpenRouterLLM
 
 import sys
 import io
@@ -26,19 +26,14 @@ class RAGService:
     def __init__(self):
         self.retriever = Retriever()
 
-        self.llm = OpenRouterLLM(model="deepseek-v4-pro", system_prompt=SYSTEM_PROMPT,)
+        print(f"[RAG] Initializing LLM model={DEFAULT_MODEL!r}", flush=True)
+        self.llm = OpenRouterLLM(model=DEFAULT_MODEL, system_prompt=SYSTEM_PROMPT,)
 
         self.agent = RAGAgent(retriever=self.retriever ,llm=self.llm, user_prompt=USER_PROMPT,)
 
-    def ask(self, question: str) -> str:
-
-
-        results = self.retriever.retrieve(question, top_k=5)
-        print("Retrieved chunks scores:", [r['score'] for r in results])
-        print("Text snippets:", [r['text'][:100] for r in results])
-
-        # Call agent.answer once and reuse the result to avoid double API calls/side effects
-        answer = self.agent.answer(question)
+    def ask(self, question: str, history=None) -> str:
+        # RAGAgent performs retrieval and passes the selected context to the LLM.
+        # Avoid retrieving the same query twice for every chat request.
+        answer = self.agent.answer(question, history=history)
         print("LLM answer:", answer)
         return answer
-        

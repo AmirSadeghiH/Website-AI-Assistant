@@ -74,20 +74,25 @@ class Retriever:
         scores, indices = scores[0], indices[0]
 
         max_score = scores[0] if scores.size > 0 else 0.0
-        results = []
+        candidates = []
+        query_terms = self._query_terms(query)
 
         for score, idx in zip(scores, indices):
-            if score < abs_min_score:
+            text = self.chunks[idx]
+            lexical_score = self._lexical_score(query_terms, text)
+            if score < abs_min_score and lexical_score == 0:
                 continue
-            if score < max_score * rel_score_drop:
+            if score < max_score * rel_score_drop and lexical_score == 0:
                 continue
-            results.append({
-                "text": self.chunks[idx],
-                "score": float(score),
+            candidates.append({
+                "text": text,
+                "score": float(score) + lexical_score,
+                "vector_score": float(score),
                 "metadata": self.metadata[idx],
             })
-            if len(results) >= top_k:
-                break
+
+        candidates.sort(key=lambda item: item["score"], reverse=True)
+        results = candidates[:top_k]
 
         # Fallback: if no results pass threshold, take top fallback_top_k
         if len(results) == 0:
@@ -96,11 +101,44 @@ class Retriever:
                 results.append({
                     "text": self.chunks[idx],
                     "score": float(scores[i]),
+                    "vector_score": float(scores[i]),
                     "metadata": self.metadata[idx],
                 })
 
-
         return results
+
+    @staticmethod
+    def _normalize_for_match(value: str) -> str:
+        return (
+            value.replace("ي", "ی")
+            .replace("ى", "ی")
+            .replace("ك", "ک")
+            .replace("\u200c", "")
+            .replace("‌", "")
+            .lower()
+        )
+
+    @classmethod
+    def _query_terms(cls, query: str) -> List[str]:
+        stop_words = {
+            "است", "هست", "چیه", "چیست", "برای", "چطور", "چگونه",
+            "می", "توانم", "شود", "یک", "این", "آن", "را", "به",
+        }
+        normalized = cls._normalize_for_match(query)
+        return [
+            term for term in normalized.split()
+            if len(term) >= 3 and term not in stop_words
+        ]
+
+    @classmethod
+    def _lexical_score(cls, query_terms: List[str], text: str) -> float:
+        if not query_terms:
+            return 0.0
+        normalized_text = cls._normalize_for_match(text)
+        matched = sum(1 for term in query_terms if term in normalized_text)
+        # A small boost keeps vector similarity primary while rescuing
+        # exact business terms such as «ارسال» and «بلوکارت».
+        return matched * 0.20
 
 
 if __name__ == "__main__":

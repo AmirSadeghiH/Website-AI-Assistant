@@ -16,12 +16,17 @@ load_dotenv()
 
 
 API_KEY = os.getenv('EMBEDDING_API_KEY')
+DEFAULT_EMBEDDING_MODEL = (
+    os.getenv('EMBEDDING_MODEL')
+    or os.getenv('EMBED_MODEL')
+    or 'text-embedding-3-small'
+)
 
 
 class Embedder:
 
 
-    def __init__(self,embedder_type:str='api', model_name: str = "intfloat/multilingual-e5-small",device: str = 'cpu', model_name_api:str='text-embedding-3-small',base_url:str='https://api.gapgpt.app/v1',api_key:str=API_KEY):
+    def __init__(self,embedder_type:str='api', model_name: str = "intfloat/multilingual-e5-small",device: str = 'cpu', model_name_api:str=DEFAULT_EMBEDDING_MODEL,base_url:str='https://api.gapgpt.app/v1',api_key:str=API_KEY):
         self.embedder_type=embedder_type
         if self.embedder_type!='api':
             self.device = device
@@ -31,8 +36,11 @@ class Embedder:
         self.model_name = model_name_api
         self.client = OpenAI(
             base_url=base_url,
-            api_key=api_key
+            api_key=api_key,
+            timeout=float(os.getenv("EMBEDDING_TIMEOUT_SECONDS", "15")),
+            max_retries=int(os.getenv("EMBEDDING_MAX_RETRIES", "0")),
         )
+        self.model_name_api = model_name_api
 
         
 
@@ -73,7 +81,7 @@ class Embedder:
         prefixed_texts = [f"passage: {t}" for t in texts]
         
         response = self.client.embeddings.create(
-            model=self.model_name,
+            model=self.model_name_api,
             input=prefixed_texts
         )
         
@@ -91,10 +99,18 @@ class Embedder:
         """
         prefixed_query = f"query: {query}"
         
-        response = self.client.embeddings.create(
-            model=self.model_name,
-            input=[prefixed_query]  
-        )
+        try:
+            response = self.client.embeddings.create(
+                model=self.model_name_api,
+                input=[prefixed_query]
+            )
+        except Exception as exc:
+            print(
+                f"[EMBEDDING ERROR] model={self.model_name_api!r} "
+                f"error={exc!r}",
+                flush=True,
+            )
+            raise
         
         embedding = response.data[0].embedding
         
