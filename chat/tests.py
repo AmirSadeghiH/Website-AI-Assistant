@@ -2,8 +2,18 @@ from unittest.mock import patch
 
 from django.test import TestCase
 
+from .models import Site, WidgetConfig
+
 
 class ChatEndpointTests(TestCase):
+    def setUp(self):
+        site = Site.objects.create(
+            name="Demo site",
+            slug="demo",
+            domain="localhost",
+        )
+        WidgetConfig.objects.create(site=site)
+
     @patch("chat.views.get_rag_service")
     def test_chat_returns_rag_answer(self, get_rag_service):
         get_rag_service.return_value.ask.return_value = "پاسخ آزمایشی"
@@ -16,7 +26,9 @@ class ChatEndpointTests(TestCase):
         )
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json(), {"answer": "پاسخ آزمایشی"})
+        self.assertEqual(response.json()["answer"], "پاسخ آزمایشی")
+        self.assertIsNotNone(response.json()["conversation_id"])
+        self.assertIsNotNone(response.json()["message_id"])
         self.assertEqual(
             response.headers.get("Access-Control-Allow-Origin"),
             "*",
@@ -56,3 +68,36 @@ class ChatEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
+
+    @patch("chat.views.get_rag_service")
+    def test_widget_config_history_and_feedback(self, get_rag_service):
+        get_rag_service.return_value.ask.return_value = "پاسخ آزمایشی"
+        config_response = self.client.get("/api/widget-config/?site_id=demo")
+        self.assertEqual(config_response.status_code, 200)
+        self.assertEqual(config_response.json()["site_id"], "demo")
+
+        conversation_response = self.client.post(
+            "/api/chat/",
+            data={"site_id": "demo", "conversation_id": "conv-test", "message": "سلام"},
+            content_type="application/json",
+        )
+        self.assertEqual(conversation_response.status_code, 200)
+        payload = conversation_response.json()
+
+        history_response = self.client.get(
+            "/api/history/?site_id=demo&conversation_id=conv-test"
+        )
+        self.assertEqual(history_response.status_code, 200)
+        self.assertEqual(len(history_response.json()["messages"]), 2)
+
+        feedback_response = self.client.post(
+            "/api/feedback/",
+            data={
+                "site_id": "demo",
+                "conversation_id": "conv-test",
+                "message_id": payload["message_id"],
+                "feedback": "helpful",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(feedback_response.status_code, 200)

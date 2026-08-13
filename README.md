@@ -62,3 +62,33 @@ Content-Type: application/json
 ویجت پاسخ‌های `answer`، `reply`، `response` و `message` را می‌خواند، timeout دارد و در خطای واقعی پیام خطا نشان می‌دهد؛ پاسخ ساختگی فقط در فایل قدیمی `index.html` و با `demoMode: true` فعال می‌شود.
 
 برای سایت‌های خارجی، در محیط production مقدار `CORS_ALLOW_ALL_ORIGINS=False` و `CORS_ALLOWED_ORIGINS` را با originهای واقعی تنظیم کنید.
+
+### پنل مدیریت و داده‌های محصول
+
+برای ساخت مدیر پنل:
+
+```powershell
+python manage.py createsuperuser
+```
+
+سپس به `/admin/` بروید. از بخش `Sites` می‌توانید سایت مشتری، دامنه و تنظیمات ویجت را مدیریت کنید. هر سایت شامل تنظیمات مستقل زیر است:
+
+- عنوان، زیرعنوان و پیام خوش‌آمدگویی
+- رنگ اصلی و ثانویه، فونت و محل نمایش
+- نمایش یا مخفی‌کردن تاریخچه
+- فعال‌بودن feedback
+- پیشنهادهای آماده‌ی ویجت
+- promptهای اختصاصی و دمای مدل برای اتصال مرحله‌ی بعدی
+
+در بخش‌های `Conversations`، `Messages` و `Analytics events` می‌توان تاریخچه و eventهای مصرف را بررسی کرد. API فعلی نیز این مسیرها را دارد:
+
+```text
+GET  /api/widget-config/?site_id=demo
+GET  /api/history/?site_id=demo&conversation_id=...
+POST /api/events/
+POST /api/feedback/
+```
+
+در حالت `DEBUG=True` اگر سایت `demo` وجود نداشته باشد، اولین درخواست آن را خودکار ایجاد می‌کند. در production باید سایت را از پنل بسازید و `site_id` همان slug یا public key سایت باشد.
+
+ساختار فعلی داده‌ها برای multi-tenant آماده است، اما index برداری هنوز از corpus مشترک `Data/` استفاده می‌کند. مرحله‌ی بعدی، ساخت `Document` و pipeline پردازش/embedding مستقل برای هر `Site` است.
