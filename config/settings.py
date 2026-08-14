@@ -43,6 +43,7 @@ ALLOWED_HOSTS = [
 # Application definition
 
 INSTALLED_APPS = [
+    'jazzmin',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -133,6 +134,26 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'
+
+JAZZMIN_SETTINGS = {
+    'site_title': 'AI Support Admin',
+    'site_header': 'AI Support',
+    'site_brand': 'AI Support',
+    'welcome_sign': 'مرکز مدیریت دستیار هوشمند',
+    'copyright': 'AI Support',
+    'show_ui_builder': DEBUG,
+    'navigation_expanded': True,
+    'custom_css': 'admin/css/support_admin.css',
+    'icons': {
+        'chat.widgetconfig': 'fas fa-sliders-h',
+        'chat.document': 'fas fa-file-lines',
+        'chat.conversation': 'fas fa-comments',
+        'chat.message': 'fas fa-message',
+        'chat.analyticsevent': 'fas fa-chart-line',
+    },
+}
 
 # CORS — required when the widget is embedded on external sites
 CORS_ALLOWED_ORIGINS = [

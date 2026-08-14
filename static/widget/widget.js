@@ -16,7 +16,6 @@
     historyEndpoint: "",
     eventsEndpoint: "",
     feedbackEndpoint: "",
-    siteId: "",
     title: "دستیار هوش مصنوعی کارسنج",
     subtitle: "Online • پاسخ های فوری به سوالات شما",
     greeting: "سلام! 👋 چطور می‌توانم کمکتان کنم؟",
@@ -57,16 +56,28 @@
     ".asw-messages{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;overflow:auto;padding:16px 12px 10px}.asw-messages.hidden{display:none}",
     ".asw-row{display:flex;align-items:flex-end;gap:7px;max-width:88%}.asw-row.user{align-self:flex-end;flex-direction:row-reverse}.asw-row.bot{align-self:flex-start}",
     ".asw-msg-avatar{width:26px;height:26px;flex:0 0 26px;display:grid;place-items:center;border-radius:50%;font-size:9px;font-weight:800}.asw-row.bot .asw-msg-avatar{background:#fff;border:1px solid #e2e8f0;color:var(--asw-primary)}.asw-row.user .asw-msg-avatar{background:var(--asw-primary);color:#fff}",
-    ".asw-col{max-width:100%}.asw-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.55;word-break:break-word;white-space:pre-wrap;box-shadow:0 2px 10px #0f172e0f}.asw-row.bot .asw-bubble{background:#fff;border:1px solid #e2e8f0;color:#0f172a;border-bottom-left-radius:6px}.asw-row.user .asw-bubble{background:var(--asw-primary);color:#fff;border-bottom-right-radius:6px}.asw-time{padding:3px 2px 0;color:#94a3b8;font-size:10px}.asw-row.user .asw-time{text-align:right}.asw-feedback{display:flex;gap:4px;margin-top:4px}.asw-feedback button{border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#64748b;font-size:11px;line-height:1;padding:4px 7px;cursor:pointer}.asw-feedback button:hover,.asw-feedback button.selected{border-color:var(--asw-primary);color:var(--asw-primary)}",
+    ".asw-col{max-width:100%}.asw-bubble{padding:10px 12px;border-radius:16px;font-size:13px;line-height:1.55;word-break:break-word;white-space:pre-wrap;box-shadow:0 2px 10px #0f172e0f}.asw-row.bot .asw-bubble{background:#fff;border:1px solid #e2e8f0;color:#0f172a;border-bottom-left-radius:6px;white-space:normal}.asw-row.user .asw-bubble{background:var(--asw-primary);color:#fff;border-bottom-right-radius:6px}.asw-bubble strong{font-weight:800}.asw-bubble em{font-style:italic}.asw-bubble a{color:var(--asw-primary);font-weight:650;text-decoration:underline;text-underline-offset:2px}.asw-bubble ul{margin:6px 0 2px;padding-inline-start:20px}.asw-bubble li{margin:3px 0}.asw-time{padding:3px 2px 0;color:#94a3b8;font-size:10px}.asw-row.user .asw-time{text-align:right}.asw-feedback{display:flex;gap:4px;margin-top:4px}.asw-feedback button{border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#64748b;font-size:11px;line-height:1;padding:4px 7px;cursor:pointer}.asw-feedback button:hover,.asw-feedback button.selected{border-color:var(--asw-primary);color:var(--asw-primary)}",
     ".asw-typing{padding:0 12px 8px;color:#94a3b8;font-size:12px}.asw-typing[hidden]{display:none}.asw-typing span{display:inline-block;margin-right:3px;animation:asw-pulse 1.1s infinite}.asw-typing span:nth-child(2){animation-delay:.15s}.asw-typing span:nth-child(3){animation-delay:.3s}@keyframes asw-pulse{50%{opacity:.3}}",
     ".asw-suggestions{display:flex;gap:6px;overflow:auto;padding:6px 12px 8px;scrollbar-width:none}.asw-suggestions[hidden]{display:none}.asw-suggestions::-webkit-scrollbar{display:none}.asw-suggestions button{flex:0 0 auto;padding:7px 10px;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;cursor:pointer}.asw-suggestions button:hover{border-color:var(--asw-primary);color:var(--asw-primary)}",
-    ".asw-footer{padding:10px;background:#fff;border-top:1px solid #e2e8f0}.asw-input-row{display:flex;gap:6px;align-items:center;padding:5px 5px 5px 12px;border:1px solid #e2e8f0;border-radius:999px;background:#f1f5f9}.asw-input-row:focus-within{background:#fff;border-color:#a5b4fc;box-shadow:0 0 0 3px #5048e51a}.asw-input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:#0f172a;font-size:13px}.asw-send{width:34px;height:34px;border:0;border-radius:50%;display:grid;place-items:center;background:var(--asw-primary);color:#fff;cursor:pointer}.asw-send:disabled{cursor:not-allowed;opacity:.45}.asw-send svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.asw-powered{text-align:center;margin-top:6px;color:#94a3b8;font-size:10px}.asw-powered[hidden]{display:none}",
+    ".asw-footer{padding:10px;background:#fff;border-top:1px solid #e2e8f0}.asw-input-row{display:flex;gap:6px;align-items:center;padding:5px 5px 5px 12px;border:1px solid #e2e8f0;border-radius:999px;background:#f1f5f9}.asw-input-row:focus-within{background:#fff;border-color:#a5b4fc;box-shadow:0 0 0 3px #5048e51a}.asw-input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:#0f172a;font-size:13px}.asw-send{width:34px;height:34px;border:0;border-radius:50%;display:grid;place-items:center;background:var(--asw-primary);color:#fff;cursor:pointer}.asw-send:disabled{cursor:not-allowed;opacity:.45}.asw-send svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.asw-powered{text-align:center;margin-top:6px;color:#94a3b8;font-size:10px}.asw-powered a{color:inherit;text-decoration:underline;text-underline-offset:2px}.asw-powered[hidden]{display:none}",
     "@media(max-width:600px){.asw-root{right:10px;bottom:10px}.asw-panel{width:min(360px,calc(100vw - 20px));height:min(540px,calc(100dvh - 80px))}}",
     "@media(prefers-reduced-motion:reduce){.asw-panel,.asw-fab{transition:none}.asw-typing span{animation:none}}",
   ].join("");
 
   function escapeText(value) {
     return String(value == null ? "" : value);
+  }
+
+  function escapeHtml(value) {
+    return escapeText(value).replace(/[&<>"']/g, function (character) {
+      return {
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      }[character];
+    });
   }
 
   function formatTime() {
@@ -104,7 +115,74 @@
   }
 
   function escapeAttribute(value) {
-    return escapeText(value).replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    return escapeHtml(value);
+  }
+
+  function isSafeUrl(value) {
+    try {
+      var url = new URL(String(value), window.location.href);
+      return (
+        url.protocol === "https:" ||
+        url.protocol === "http:" ||
+        url.protocol === "mailto:"
+      );
+    } catch (_error) {
+      return false;
+    }
+  }
+
+  function renderInlineMarkdown(value) {
+    var links = [];
+    var source = String(value == null ? "" : value).replace(
+      /\[([^\]]+)\]\(([^)\s]+(?:\s+[^)\s]+)?)\)/g,
+      function (_match, label, url) {
+        if (!isSafeUrl(url)) return label;
+        var token = "ASWLINKTOKEN" + links.length + "X";
+        links.push({
+          token: token,
+          html:
+            '<a href="' +
+            escapeAttribute(url) +
+            '" target="_blank" rel="noopener noreferrer">' +
+            escapeHtml(label) +
+            "</a>",
+        });
+        return token;
+      }
+    );
+    var html = escapeHtml(source)
+      .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/__([^_\n]+)__/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
+      .replace(/(^|[^_])_([^_\n]+)_(?!_)/g, "$1<em>$2</em>");
+    links.forEach(function (link) {
+      html = html.replace(link.token, link.html);
+    });
+    return html;
+  }
+
+  function renderMarkdown(value) {
+    var lines = String(value == null ? "" : value).split(/\r?\n/);
+    var output = [];
+    var inList = false;
+    lines.forEach(function (line) {
+      var match = line.match(/^\s*[-*\u2022]\s+(.+)$/);
+      if (match) {
+        if (!inList) {
+          output.push("<ul>");
+          inList = true;
+        }
+        output.push("<li>" + renderInlineMarkdown(match[1]) + "</li>");
+        return;
+      }
+      if (inList) {
+        output.push("</ul>");
+        inList = false;
+      }
+      output.push(renderInlineMarkdown(line));
+    });
+    if (inList) output.push("</ul>");
+    return output.join("<br>");
   }
 
   class AISupportWidget {
@@ -152,7 +230,7 @@
       root.style.setProperty("--asw-secondary", this.options.secondaryColor);
       root.innerHTML =
         '<section class="asw-panel" role="dialog" aria-label="' +
-        escapeText(this.options.title) +
+        escapeHtml(this.options.title) +
         '" aria-hidden="true">' +
         '<header class="asw-header"><div class="asw-heading"><div class="asw-avatar">AI</div><div><div class="asw-title"></div><div class="asw-subtitle"></div></div></div><div class="asw-actions"><button class="asw-history-toggle" type="button" aria-label="Hide history">' +
         ICONS.history +
@@ -164,7 +242,7 @@
         '<div class="asw-suggestions"></div>' +
         '<footer class="asw-footer"><div class="asw-input-row"><input class="asw-input" type="text" autocomplete="off" placeholder="Ask anything..." aria-label="Message"><button class="asw-send" type="button" aria-label="Send message">' +
         ICONS.send +
-        '</button></div><div class="asw-powered">Powered by AI Support</div></footer></section>' +
+        '</button></div><div class="asw-powered">Powered by AI Support <span class="asw-resource-links"></span></div></footer></section>' +
         '<button class="asw-fab" type="button" aria-label="Open chat" aria-expanded="false">' +
         ICONS.chat +
         "</button>";
@@ -183,10 +261,12 @@
       this.input = root.querySelector(".asw-input");
       this.sendButton = root.querySelector(".asw-send");
       this.powered = root.querySelector(".asw-powered");
+      this.resourceLinks = root.querySelector(".asw-resource-links");
 
       this.title.textContent = this.options.title;
       this.subtitle.textContent = this.options.subtitle;
       this.renderSuggestions();
+      this.renderResourceLinks();
       this.applyVisualOptions();
       this.bindEvents();
       this.addMessage(this.options.greeting, "bot");
@@ -200,18 +280,15 @@
     }
 
     async loadConfig() {
-      if (!this.options.siteId || !this.options.configEndpoint) return;
+      if (!this.options.configEndpoint) return;
       try {
         var response = await fetch(
-          this.options.configEndpoint +
-            "?site_id=" +
-            encodeURIComponent(this.options.siteId),
+          this.options.configEndpoint,
           { method: "GET", mode: "cors", credentials: "omit" }
         );
         if (!response.ok) return;
         var rawConfig = await response.json();
         var config = {
-          siteId: rawConfig.site_id,
           title: rawConfig.title,
           subtitle: rawConfig.subtitle,
           greeting: rawConfig.greeting,
@@ -223,6 +300,9 @@
           allowFeedback: rawConfig.allow_feedback,
           showPoweredBy: rawConfig.show_powered_by,
           suggestions: rawConfig.suggestions,
+          faqUrl: rawConfig.faq_url,
+          privacyUrl: rawConfig.privacy_url,
+          supportEmail: rawConfig.support_email,
         };
         Object.keys(config).forEach((key) => {
           if (config[key] === undefined || config[key] === null) return;
@@ -234,19 +314,18 @@
         this.subtitle.textContent = this.options.subtitle;
         this.applyVisualOptions();
         this.renderSuggestions();
+        this.renderResourceLinks();
       } catch (_error) {
         // Local defaults remain usable when configuration is unavailable.
       }
     }
 
     async loadHistory() {
-      if (!this.options.siteId || !this.options.historyEndpoint) return;
+      if (!this.options.historyEndpoint) return;
       try {
         var response = await fetch(
           this.options.historyEndpoint +
-            "?site_id=" +
-            encodeURIComponent(this.options.siteId) +
-            "&conversation_id=" +
+            "?conversation_id=" +
             encodeURIComponent(this.conversationId),
           { method: "GET", mode: "cors", credentials: "omit" }
         );
@@ -297,12 +376,37 @@
             '<button type="button" data-message="' +
             escapeAttribute(item) +
             '">' +
-            escapeText(item) +
+            escapeHtml(item) +
             "</button>"
           );
         })
         .join("");
       this.suggestions.hidden = items.length === 0;
+    }
+
+    renderResourceLinks() {
+      if (!this.resourceLinks) return;
+      this.resourceLinks.textContent = "";
+      var resources = [
+        { label: "FAQ", url: this.options.faqUrl },
+        { label: "Privacy", url: this.options.privacyUrl },
+        {
+          label: "Support",
+          url: this.options.supportEmail
+            ? "mailto:" + this.options.supportEmail
+            : "",
+        },
+      ];
+      resources.forEach(function (resource) {
+        if (!resource.url || !isSafeUrl(resource.url)) return;
+        var link = document.createElement("a");
+        link.href = resource.url;
+        link.target = "_blank";
+        link.rel = "noopener noreferrer";
+        link.textContent = resource.label;
+        this.resourceLinks.appendChild(document.createTextNode(" · "));
+        this.resourceLinks.appendChild(link);
+      }, this);
     }
 
     bindEvents() {
@@ -382,7 +486,11 @@
       column.className = "asw-col";
       var bubble = document.createElement("div");
       bubble.className = "asw-bubble";
-      bubble.textContent = escapeText(text);
+      if (sender === "bot") {
+        bubble.innerHTML = renderMarkdown(text);
+      } else {
+        bubble.textContent = escapeText(text);
+      }
       var time = document.createElement("div");
       time.className = "asw-time";
       time.textContent = formatTime();
@@ -418,7 +526,6 @@
         credentials: "omit",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          site_id: this.options.siteId,
           conversation_id: this.conversationId,
           event_type: eventType,
           metadata: metadata || {},
@@ -440,7 +547,6 @@
         credentials: "omit",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          site_id: this.options.siteId,
           conversation_id: this.conversationId,
           message_id: messageId,
           feedback: feedback,
@@ -498,7 +604,6 @@
         conversation_id: this.conversationId,
         history: history || [],
       };
-      if (this.options.siteId) payload.site_id = this.options.siteId;
 
       try {
         var response = await fetch(this.options.apiEndpoint, {
@@ -548,7 +653,6 @@
     var globalConfig = window.AI_WIDGET_CONFIG || {};
     var options = Object.assign({}, globalConfig);
     if (scriptConfig.api) options.apiEndpoint = scriptConfig.api;
-    if (scriptConfig.siteId) options.siteId = scriptConfig.siteId;
     if (scriptConfig.title) options.title = scriptConfig.title;
     if (scriptConfig.primaryColor) options.primaryColor = scriptConfig.primaryColor;
     window._aiWidget = new AISupportWidget(options);

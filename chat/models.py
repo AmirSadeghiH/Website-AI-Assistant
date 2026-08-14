@@ -1,39 +1,22 @@
 import uuid
 
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
 def generate_public_key():
+    # Kept for the historical 0001 migration; multi-site no longer uses it.
     return uuid.uuid4().hex
 
 
-class Site(models.Model):
-    name = models.CharField(max_length=200)
-    slug = models.SlugField(max_length=80, unique=True)
-    public_key = models.CharField(
-        max_length=32,
+class WidgetConfig(models.Model):
+    singleton_key = models.PositiveSmallIntegerField(
+        default=1,
         unique=True,
-        default=generate_public_key,
         editable=False,
     )
-    domain = models.CharField(max_length=255, blank=True)
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ("name",)
-
-    def __str__(self):
-        return self.name
-
-
-class WidgetConfig(models.Model):
-    site = models.OneToOneField(
-        Site,
-        on_delete=models.CASCADE,
-        related_name="widget_config",
-    )
+    business_name = models.CharField(max_length=200, default="AI Support")
+    website_url = models.URLField(max_length=1000, blank=True)
     title = models.CharField(max_length=120, default="دستیار هوش مصنوعی")
     subtitle = models.CharField(
         max_length=200,
@@ -68,19 +51,68 @@ class WidgetConfig(models.Model):
     model_name = models.CharField(max_length=120, blank=True)
     system_prompt = models.TextField(blank=True)
     user_prompt = models.TextField(blank=True)
+    faq_url = models.URLField(max_length=1000, blank=True)
+    privacy_url = models.URLField(max_length=1000, blank=True)
+    support_email = models.EmailField(blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    class Meta:
+        verbose_name = "Widget settings"
+        verbose_name_plural = "Widget settings"
+
+    def clean(self):
+        if WidgetConfig.objects.exclude(pk=self.pk).exists():
+            raise ValidationError("Only one widget settings record is allowed.")
+
     def __str__(self):
-        return f"Widget config: {self.site.name}"
+        return f"{self.business_name} widget settings"
+
+
+class Document(models.Model):
+    STATUS_CHOICES = (
+        ("uploaded", "Uploaded"),
+        ("queued", "Queued"),
+        ("processing", "Processing"),
+        ("ready", "Ready"),
+        ("failed", "Failed"),
+    )
+    FILE_TYPE_CHOICES = (
+        ("pdf", "PDF"),
+        ("txt", "Text"),
+        ("docx", "Word"),
+    )
+
+    title = models.CharField(max_length=255)
+    file = models.FileField(upload_to="documents/%Y/%m/")
+    file_type = models.CharField(
+        max_length=10,
+        choices=FILE_TYPE_CHOICES,
+        blank=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="uploaded",
+    )
+    error_message = models.TextField(blank=True)
+    content_hash = models.CharField(max_length=64, blank=True, db_index=True)
+    chunk_count = models.PositiveIntegerField(default=0)
+    embedding_count = models.PositiveIntegerField(default=0)
+    processed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "Knowledge document"
+        verbose_name_plural = "Knowledge documents"
+
+    def __str__(self):
+        return self.title
 
 
 class Conversation(models.Model):
-    site = models.ForeignKey(
-        Site,
-        on_delete=models.CASCADE,
-        related_name="conversations",
-    )
-    external_id = models.CharField(max_length=100)
+    external_id = models.CharField(max_length=100, unique=True)
     page_url = models.URLField(max_length=1000, blank=True)
     referrer = models.URLField(max_length=1000, blank=True)
     user_agent = models.TextField(blank=True)
@@ -90,15 +122,11 @@ class Conversation(models.Model):
 
     class Meta:
         ordering = ("-last_activity_at",)
-        constraints = [
-            models.UniqueConstraint(
-                fields=("site", "external_id"),
-                name="unique_conversation_per_site",
-            ),
-        ]
+        verbose_name = "Conversation"
+        verbose_name_plural = "Conversations"
 
     def __str__(self):
-        return f"{self.site.slug} / {self.external_id}"
+        return self.external_id
 
 
 class Message(models.Model):
@@ -129,6 +157,8 @@ class Message(models.Model):
 
     class Meta:
         ordering = ("created_at", "id")
+        verbose_name = "Message"
+        verbose_name_plural = "Messages"
 
     def __str__(self):
         return f"{self.role}: {self.content[:60]}"
@@ -148,11 +178,6 @@ class AnalyticsEvent(models.Model):
         ("conversation_archived", "Conversation archived"),
     )
 
-    site = models.ForeignKey(
-        Site,
-        on_delete=models.CASCADE,
-        related_name="analytics_events",
-    )
     conversation = models.ForeignKey(
         Conversation,
         on_delete=models.SET_NULL,
@@ -167,6 +192,8 @@ class AnalyticsEvent(models.Model):
 
     class Meta:
         ordering = ("-created_at",)
+        verbose_name = "Analytics event"
+        verbose_name_plural = "Analytics events"
 
     def __str__(self):
-        return f"{self.site.slug}: {self.event_type}"
+        return self.event_type

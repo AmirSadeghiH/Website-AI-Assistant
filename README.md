@@ -1,94 +1,86 @@
-## AI Support Platform
+# AI Support Platform — Beta
 
-این پروژه یک سرویس Django برای پاسخ‌گویی RAG و یک ویجت قابل Embed در سایت‌های دیگر است.
+نسخه Beta این محصول برای یک کسب‌وکار و یک نصب مستقل طراحی شده است. هر مشتری
+روی سرور خودش یک نمونه از Django، دیتابیس، corpus و ویجت اختصاصی دارد.
+در این نسخه SaaS، tenant، `site_id` و مدیریت چند سایت وجود ندارد.
 
-### اجرای محلی
+## اجرای محلی
 
 ```powershell
-python manage.py runserver
+.\.venv\Scripts\python.exe manage.py migrate
+.\.venv\Scripts\python.exe manage.py createsuperuser
+.\.venv\Scripts\python.exe manage.py runserver
 ```
 
-سپس صفحه‌ی تست در `/demo/` یا `/static/demo.html` در دسترس است. endpoint اصلی:
+صفحه تست ویجت:
+
+```text
+http://127.0.0.1:8000/demo/
+```
+
+پنل مدیریت:
+
+```text
+http://127.0.0.1:8000/admin/
+```
+
+## API اصلی
 
 ```text
 POST /api/chat/
-Content-Type: application/json
+GET  /api/widget-config/
+GET  /api/history/?conversation_id=...
+POST /api/events/
+POST /api/feedback/
+GET  /api/health/
 ```
 
-بدنه:
+نمونه درخواست:
 
 ```json
 {
-  "message": "سوال کاربر",
-  "site_id": "demo",
-  "conversation_id": "optional-session-id"
+  "message": "سؤال کاربر",
+  "conversation_id": "optional-session-id",
+  "history": []
 }
 ```
 
-`site_id` و `conversation_id` در نسخه‌ی فعلی برای سازگاری آینده پذیرفته و از سمت ویجت ارسال می‌شوند؛ RAG فعلی همچنان از مجموعه‌ی داده‌ی موجود در `Data/` استفاده می‌کند.
-
-پاسخ موفق:
-
-```json
-{
-  "answer": "پاسخ تولیدشده توسط RAG"
-}
-```
-
-### Embed ویجت
+## Embed ویجت
 
 ```html
 <script
   src="https://YOUR-API-DOMAIN/static/widget/widget.js"
   data-api="https://YOUR-API-DOMAIN/api/chat/"
-  data-site-id="YOUR-SITE-ID"
   defer>
 </script>
 ```
 
-یا با تنظیمات سراسری:
+ویجت تنظیمات ظاهری و رفتاری را از `/api/widget-config/` می‌خواند؛ بنابراین
+عنوان، رنگ، فونت، موقعیت، پیام خوش‌آمد، پیشنهادها، لینک FAQ، Privacy و ایمیل
+پشتیبانی از پنل قابل تغییر هستند.
 
-```html
-<script>
-  window.AI_WIDGET_CONFIG = {
-    apiEndpoint: "https://YOUR-API-DOMAIN/api/chat/",
-    siteId: "YOUR-SITE-ID",
-    title: "پشتیبانی هوشمند"
-  };
-</script>
-<script src="https://YOUR-API-DOMAIN/static/widget/widget.js" defer></script>
+پاسخ‌های دستیار Markdown محدود و امن را پشتیبانی می‌کنند:
+
+- `**bold**`
+- `*italic*`
+- `[لینک](https://example.com)`
+- فهرست‌های bullet
+
+لینک‌های `javascript:` و schemeهای ناشناخته نمایش داده نمی‌شوند.
+
+## تنظیمات محیط
+
+مقادیر LLM و embedding را در `.env` قرار دهید. حداقل تنظیمات معمول:
+
+```env
+DEBUG=True
+SECRET_KEY=change-me
+LLM_API_KEY=your-api-key
+LLM_BASE_URL=https://api.gapgpt.app/v1
+LLM_MODEL=deepseek-v4-pro
+EMBEDDING_API_KEY=your-api-key
+EMBEDDING_MODEL=text-embedding-3-small
 ```
 
-ویجت پاسخ‌های `answer`، `reply`، `response` و `message` را می‌خواند، timeout دارد و در خطای واقعی پیام خطا نشان می‌دهد؛ پاسخ ساختگی فقط در فایل قدیمی `index.html` و با `demoMode: true` فعال می‌شود.
-
-برای سایت‌های خارجی، در محیط production مقدار `CORS_ALLOW_ALL_ORIGINS=False` و `CORS_ALLOWED_ORIGINS` را با originهای واقعی تنظیم کنید.
-
-### پنل مدیریت و داده‌های محصول
-
-برای ساخت مدیر پنل:
-
-```powershell
-python manage.py createsuperuser
-```
-
-سپس به `/admin/` بروید. از بخش `Sites` می‌توانید سایت مشتری، دامنه و تنظیمات ویجت را مدیریت کنید. هر سایت شامل تنظیمات مستقل زیر است:
-
-- عنوان، زیرعنوان و پیام خوش‌آمدگویی
-- رنگ اصلی و ثانویه، فونت و محل نمایش
-- نمایش یا مخفی‌کردن تاریخچه
-- فعال‌بودن feedback
-- پیشنهادهای آماده‌ی ویجت
-- promptهای اختصاصی و دمای مدل برای اتصال مرحله‌ی بعدی
-
-در بخش‌های `Conversations`، `Messages` و `Analytics events` می‌توان تاریخچه و eventهای مصرف را بررسی کرد. API فعلی نیز این مسیرها را دارد:
-
-```text
-GET  /api/widget-config/?site_id=demo
-GET  /api/history/?site_id=demo&conversation_id=...
-POST /api/events/
-POST /api/feedback/
-```
-
-در حالت `DEBUG=True` اگر سایت `demo` وجود نداشته باشد، اولین درخواست آن را خودکار ایجاد می‌کند. در production باید سایت را از پنل بسازید و `site_id` همان slug یا public key سایت باشد.
-
-ساختار فعلی داده‌ها برای multi-tenant آماده است، اما index برداری هنوز از corpus مشترک `Data/` استفاده می‌کند. مرحله‌ی بعدی، ساخت `Document` و pipeline پردازش/embedding مستقل برای هر `Site` است.
+در production مقدار `DEBUG=False`، `ALLOWED_HOSTS` و
+`CORS_ALLOWED_ORIGINS` را دقیق تنظیم کنید.

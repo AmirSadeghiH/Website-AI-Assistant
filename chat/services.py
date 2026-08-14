@@ -23,13 +23,35 @@ SYSTEM_PROMPT = (
 
 
 class RAGService:
-    def __init__(self):
+    def __init__(self, config=None):
         self.retriever = Retriever()
 
-        print(f"[RAG] Initializing LLM model={DEFAULT_MODEL!r}", flush=True)
-        self.llm = OpenRouterLLM(model=DEFAULT_MODEL, system_prompt=SYSTEM_PROMPT,)
+        self.llm = OpenRouterLLM(model=DEFAULT_MODEL, system_prompt=SYSTEM_PROMPT)
 
-        self.agent = RAGAgent(retriever=self.retriever ,llm=self.llm, user_prompt=USER_PROMPT,)
+        self.agent = RAGAgent(
+            retriever=self.retriever,
+            llm=self.llm,
+            user_prompt=USER_PROMPT,
+        )
+        self.apply_config(config)
+
+    def apply_config(self, config=None):
+        """Apply the single-site settings without rebuilding the retriever."""
+        model_name = getattr(config, "model_name", "") if config else ""
+        temperature = getattr(config, "temperature", None) if config else None
+        system_prompt = getattr(config, "system_prompt", "") if config else ""
+        user_prompt = getattr(config, "user_prompt", "") if config else ""
+
+        self.llm.model = (model_name or DEFAULT_MODEL).strip()
+        if temperature is not None:
+            self.llm.temperature = float(temperature)
+        self.llm.system_prompt = system_prompt.strip() or SYSTEM_PROMPT
+        self.agent.user_prompt = user_prompt.strip() or USER_PROMPT
+        print(
+            f"[RAG] Configured LLM model={self.llm.model!r} "
+            f"temperature={self.llm.temperature}",
+            flush=True,
+        )
 
     def ask(self, question: str, history=None) -> str:
         # RAGAgent performs retrieval and passes the selected context to the LLM.

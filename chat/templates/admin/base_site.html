@@ -1,0 +1,28 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}AI Support Control Room{% endblock %}
+
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/support_admin.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <a href="{% url 'admin:index' %}" class="support-brand" aria-label="AI Support home">
+    <span class="support-brand-mark">✦</span>
+    <span>
+      <strong>AI Support</strong>
+      <small>Control Room</small>
+    </span>
+  </a>
+{% endblock %}
+
+{% block nav-global %}
+  <div class="support-topbar">
+    <span class="support-status-dot"></span>
+    سیستم عملیاتی است
+    <span class="support-topbar-separator">•</span>
+    نصب تک‌سایته
+  </div>
+{% endblock %}
