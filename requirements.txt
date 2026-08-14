@@ -10,6 +10,8 @@ distro==1.9.0
 Django==6.1
 django-jazzmin==3.0.5
 django-cors-headers==4.9.0
+djangorestframework==3.18.0
+redis==8.1.0
 faiss-cpu==1.15.0
 filelock==3.32.2
 flashtext==2.7

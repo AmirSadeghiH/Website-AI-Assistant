@@ -1,9 +1,12 @@
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
+from django.test import override_settings
 from django.test import TestCase
 
-from .models import AnalyticsEvent, Conversation, Message, WidgetConfig
+from .admin import DocumentAdminForm
+from .models import AnalyticsEvent, Conversation, Document, Message, WidgetConfig
 
 
 class ChatEndpointTests(TestCase):
@@ -86,6 +89,8 @@ class ChatEndpointTests(TestCase):
         self.assertEqual(config_response.status_code, 200)
         self.assertEqual(config_response.json()["business_name"], "Demo business")
         self.assertEqual(config_response.json()["suggestions"], self.config.suggestions)
+        self.assertEqual(config_response.json()["panel_width"], 380)
+        self.assertEqual(config_response.json()["mobile_fullscreen"], True)
 
         chat_response = self.client.post(
             "/api/chat/",
@@ -143,6 +148,60 @@ class ChatEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(WidgetConfig.objects.count(), 1)
 
+    @override_settings(
+        WIDGET_PUBLIC_KEY="test-public-key",
+        WIDGET_ALLOWED_ORIGINS=("https://carsanj.ir",),
+    )
+    @patch("chat.views.get_rag_service")
+    def test_widget_key_and_conversation_token_protect_history(self, get_rag_service):
+        get_rag_service.return_value.ask.return_value = "پاسخ امن"
+        headers = {
+            "HTTP_X_WIDGET_KEY": "test-public-key",
+            "HTTP_ORIGIN": "https://carsanj.ir",
+        }
+
+        event = self.client.post(
+            "/api/events/",
+            data={"conversation_id": "secure-conv", "event_type": "widget_loaded"},
+            content_type="application/json",
+            **headers,
+        )
+        self.assertEqual(event.status_code, 200)
+        token = event.json()["conversation_token"]
+
+        denied = self.client.get(
+            "/api/history/?conversation_id=secure-conv",
+            **headers,
+        )
+        self.assertEqual(denied.status_code, 403)
+
+        allowed = self.client.get(
+            "/api/history/?conversation_id=secure-conv",
+            HTTP_X_WIDGET_KEY="test-public-key",
+            HTTP_X_CONVERSATION_TOKEN=token,
+            HTTP_ORIGIN="https://carsanj.ir",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+    @override_settings(
+        WIDGET_PUBLIC_KEY="test-public-key",
+        WIDGET_ALLOWED_ORIGINS=("https://carsanj.ir",),
+    )
+    def test_wrong_widget_key_and_origin_are_rejected(self):
+        wrong_key = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wrong",
+            HTTP_ORIGIN="https://carsanj.ir",
+        )
+        self.assertEqual(wrong_key.status_code, 403)
+
+        wrong_origin = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="test-public-key",
+            HTTP_ORIGIN="https://attacker.example",
+        )
+        self.assertEqual(wrong_origin.status_code, 403)
+
 
 class SupportAdminTests(TestCase):
     def test_custom_admin_dashboard_renders(self):
@@ -157,5 +216,65 @@ class SupportAdminTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "AI Support")
-        self.assertContains(response, "Control Room")
+        self.assertContains(response, "BETA CONTROL ROOM")
         self.assertContains(response, "Widget settings")
+        self.assertContains(response, "Knowledge documents")
+
+        form_response = self.client.get("/admin/chat/document/add/")
+        self.assertEqual(form_response.status_code, 200)
+        self.assertContains(form_response, "PDF")
+        self.assertContains(form_response, "DOCX")
+
+    def test_document_form_accepts_supported_files_and_rejects_unknown_types(self):
+        valid_form = DocumentAdminForm(
+            data={"title": "راهنما"},
+            files={
+                "file": SimpleUploadedFile(
+                    "guide.docx",
+                    b"fake-docx",
+                    content_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                ),
+            },
+        )
+        self.assertTrue(valid_form.is_valid(), valid_form.errors)
+
+        invalid_form = DocumentAdminForm(
+            data={"title": "اسکریپت"},
+            files={
+                "file": SimpleUploadedFile(
+                    "script.exe",
+                    b"not allowed",
+                    content_type="application/octet-stream",
+                ),
+            },
+        )
+        self.assertFalse(invalid_form.is_valid())
+        self.assertIn("file", invalid_form.errors)
+
+    @patch("chat.document_pipeline.subprocess.Popen")
+    def test_document_admin_action_queues_background_worker(self, popen):
+        user = get_user_model().objects.create_superuser(
+            username="processor",
+            email="processor@example.com",
+            password="safe-password-123",
+        )
+        self.client.force_login(user)
+        document = Document.objects.create(
+            title="راهنما",
+            file=SimpleUploadedFile("guide.txt", b"hello"),
+            file_type="txt",
+        )
+
+        response = self.client.post(
+            "/admin/chat/document/",
+            {
+                "action": "process_documents",
+                "_selected_action": [str(document.pk)],
+                "index": 0,
+                "select_across": 0,
+            },
+        )
+        self.assertEqual(response.status_code, 302)
+        document.refresh_from_db()
+        self.assertEqual(document.status, "queued")
+        popen.assert_called_once()

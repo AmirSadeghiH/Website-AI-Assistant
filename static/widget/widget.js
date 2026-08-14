@@ -16,12 +16,22 @@
     historyEndpoint: "",
     eventsEndpoint: "",
     feedbackEndpoint: "",
+    widgetPublicKey: "",
     title: "دستیار هوش مصنوعی کارسنج",
     subtitle: "Online • پاسخ های فوری به سوالات شما",
     greeting: "سلام! 👋 چطور می‌توانم کمکتان کنم؟",
     timeoutMs: 45000,
     primaryColor: "#5048E5",
     secondaryColor: "#7C3AED",
+    headerBadge: "ONLINE",
+    botAvatarText: "AI",
+    inputPlaceholder: "سؤال خود را بنویسید...",
+    themeMode: "gradient",
+    panelWidth: 380,
+    panelHeight: 600,
+    borderRadius: 22,
+    mobileFullscreen: true,
+    logoUrl: "",
     fontFamily: "Inter, ui-sans-serif, system-ui, sans-serif",
     showHistory: true,
     allowFeedback: true,
@@ -44,14 +54,14 @@
     ":host{all:initial}",
     "*{box-sizing:border-box;font-family:var(--asw-font,Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif)}",
     ".asw-root{position:fixed;right:20px;bottom:20px;z-index:2147483647;display:flex;flex-direction:column;align-items:flex-end;gap:12px}",
-    ".asw-fab{width:58px;height:58px;border:0;border-radius:50%;background:var(--asw-primary);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 12px 30px #5048e561;transition:transform .2s,box-shadow .2s}",
+    ".asw-fab{width:58px;height:58px;border:0;border-radius:50%;background:var(--asw-header-background);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 12px 30px #5048e561;transition:transform .2s,box-shadow .2s}",
     ".asw-fab:hover{transform:translateY(-2px);box-shadow:0 16px 36px #5048e56b}",
     ".asw-fab svg{width:25px;height:25px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}",
-    ".asw-panel{width:360px;height:540px;max-height:calc(100dvh - 90px);display:flex;flex-direction:column;overflow:hidden;background:#f8fafc;border:1px solid #e2e8f0;border-radius:20px;box-shadow:0 24px 60px #0f172e2e;opacity:0;pointer-events:none;transform:translateY(12px) scale(.98);transform-origin:bottom right;transition:opacity .2s,transform .3s cubic-bezier(.16,1,.3,1)}",
+    ".asw-panel{width:var(--asw-panel-width);height:var(--asw-panel-height);max-width:calc(100vw - 24px);max-height:calc(100dvh - 90px);display:flex;flex-direction:column;overflow:hidden;background:var(--asw-surface);border:1px solid #e2e8f0;border-radius:var(--asw-radius);box-shadow:0 24px 60px #0f172e2e;opacity:0;pointer-events:none;transform:translateY(12px) scale(.98);transform-origin:bottom right;transition:opacity .2s,transform .3s cubic-bezier(.16,1,.3,1)}",
     ".asw-panel.open{opacity:1;pointer-events:auto;transform:none}",
-    ".asw-header{display:flex;align-items:center;justify-content:space-between;padding:15px;background:linear-gradient(135deg,var(--asw-primary),var(--asw-secondary));color:#fff}",
-    ".asw-heading{display:flex;align-items:center;gap:10px;min-width:0}.asw-avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#fff;color:var(--asw-primary);font-size:12px;font-weight:800}",
-    ".asw-title{font-size:14px;font-weight:750}.asw-subtitle{margin-top:3px;font-size:11px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
+    ".asw-header{display:flex;align-items:center;justify-content:space-between;padding:15px;background:var(--asw-header-background);color:#fff}",
+    ".asw-heading{display:flex;align-items:center;gap:10px;min-width:0}.asw-avatar{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;background:#fff;color:var(--asw-primary);font-size:12px;font-weight:800}.asw-avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}",
+    ".asw-title-row{display:flex;align-items:center;gap:6px;min-width:0}.asw-title{font-size:14px;font-weight:750;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.asw-badge{padding:3px 6px;border:1px solid #ffffff45;border-radius:999px;background:#ffffff22;font-size:9px;letter-spacing:.08em;white-space:nowrap}.asw-subtitle{margin-top:3px;font-size:11px;opacity:.9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}",
     ".asw-actions{display:flex;gap:5px}.asw-close,.asw-history-toggle{width:30px;height:30px;border:1px solid #ffffff3d;border-radius:50%;background:#ffffff24;color:#fff;display:grid;place-items:center;cursor:pointer}.asw-close svg,.asw-history-toggle svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}",
     ".asw-messages{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;overflow:auto;padding:16px 12px 10px}.asw-messages.hidden{display:none}",
     ".asw-row{display:flex;align-items:flex-end;gap:7px;max-width:88%}.asw-row.user{align-self:flex-end;flex-direction:row-reverse}.asw-row.bot{align-self:flex-start}",
@@ -60,7 +70,7 @@
     ".asw-typing{padding:0 12px 8px;color:#94a3b8;font-size:12px}.asw-typing[hidden]{display:none}.asw-typing span{display:inline-block;margin-right:3px;animation:asw-pulse 1.1s infinite}.asw-typing span:nth-child(2){animation-delay:.15s}.asw-typing span:nth-child(3){animation-delay:.3s}@keyframes asw-pulse{50%{opacity:.3}}",
     ".asw-suggestions{display:flex;gap:6px;overflow:auto;padding:6px 12px 8px;scrollbar-width:none}.asw-suggestions[hidden]{display:none}.asw-suggestions::-webkit-scrollbar{display:none}.asw-suggestions button{flex:0 0 auto;padding:7px 10px;border:1px solid #e2e8f0;border-radius:999px;background:#fff;color:#334155;font-size:12px;cursor:pointer}.asw-suggestions button:hover{border-color:var(--asw-primary);color:var(--asw-primary)}",
     ".asw-footer{padding:10px;background:#fff;border-top:1px solid #e2e8f0}.asw-input-row{display:flex;gap:6px;align-items:center;padding:5px 5px 5px 12px;border:1px solid #e2e8f0;border-radius:999px;background:#f1f5f9}.asw-input-row:focus-within{background:#fff;border-color:#a5b4fc;box-shadow:0 0 0 3px #5048e51a}.asw-input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:#0f172a;font-size:13px}.asw-send{width:34px;height:34px;border:0;border-radius:50%;display:grid;place-items:center;background:var(--asw-primary);color:#fff;cursor:pointer}.asw-send:disabled{cursor:not-allowed;opacity:.45}.asw-send svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}.asw-powered{text-align:center;margin-top:6px;color:#94a3b8;font-size:10px}.asw-powered a{color:inherit;text-decoration:underline;text-underline-offset:2px}.asw-powered[hidden]{display:none}",
-    "@media(max-width:600px){.asw-root{right:10px;bottom:10px}.asw-panel{width:min(360px,calc(100vw - 20px));height:min(540px,calc(100dvh - 80px))}}",
+    "@media(max-width:600px){.asw-root{right:10px;bottom:10px}.asw-panel{width:min(var(--asw-panel-width),calc(100vw - 20px));height:min(var(--asw-panel-height),calc(100dvh - 80px))}.asw-root.mobile-fullscreen .asw-panel{position:fixed;right:0;bottom:0;width:100vw;max-width:none;height:100dvh;max-height:none;border-radius:0}.asw-root.mobile-fullscreen .asw-panel.open~.asw-fab{display:none}}",
     "@media(prefers-reduced-motion:reduce){.asw-panel,.asw-fab{transition:none}.asw-typing span{animation:none}}",
   ].join("");
 
@@ -98,6 +108,21 @@
     } catch (_error) {
       return "conv_" + Math.random().toString(36).slice(2) + Date.now();
     }
+  }
+
+  function getConversationToken() {
+    try {
+      return window.sessionStorage.getItem("ai-support-conversation-token") || "";
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function saveConversationToken(token) {
+    if (!token) return;
+    try {
+      window.sessionStorage.setItem("ai-support-conversation-token", token);
+    } catch (_error) {}
   }
 
   function getDefaultEndpoint() {
@@ -205,6 +230,7 @@
         this.options.feedbackEndpoint ||
         getSiblingEndpoint(this.options.apiEndpoint, "feedback");
       this.conversationId = getConversationId();
+      this.conversationToken = getConversationToken();
       this.history = [];
       this.historyHidden = false;
       this.isOpen = false;
@@ -228,11 +254,35 @@
       root.className = "asw-root";
       root.style.setProperty("--asw-primary", this.options.primaryColor);
       root.style.setProperty("--asw-secondary", this.options.secondaryColor);
+      root.style.setProperty(
+        "--asw-header-background",
+        this.getHeaderBackground()
+      );
+      root.style.setProperty(
+        "--asw-panel-width",
+        this.clampNumber(this.options.panelWidth, 280, 520) + "px"
+      );
+      root.style.setProperty(
+        "--asw-panel-height",
+        this.clampNumber(this.options.panelHeight, 360, 760) + "px"
+      );
+      root.style.setProperty(
+        "--asw-radius",
+        this.clampNumber(this.options.borderRadius, 10, 36) + "px"
+      );
+      root.style.setProperty(
+        "--asw-surface",
+        this.options.themeMode === "glass" ? "#ffffffed" : "#f8fafc"
+      );
+      root.classList.toggle(
+        "mobile-fullscreen",
+        this.options.mobileFullscreen !== false
+      );
       root.innerHTML =
         '<section class="asw-panel" role="dialog" aria-label="' +
         escapeHtml(this.options.title) +
         '" aria-hidden="true">' +
-        '<header class="asw-header"><div class="asw-heading"><div class="asw-avatar">AI</div><div><div class="asw-title"></div><div class="asw-subtitle"></div></div></div><div class="asw-actions"><button class="asw-history-toggle" type="button" aria-label="Hide history">' +
+        '<header class="asw-header"><div class="asw-heading"><div class="asw-avatar"></div><div><div class="asw-title-row"><div class="asw-title"></div><span class="asw-badge"></span></div><div class="asw-subtitle"></div></div></div><div class="asw-actions"><button class="asw-history-toggle" type="button" aria-label="Hide history">' +
         ICONS.history +
         '</button><button class="asw-close" type="button" aria-label="Close chat">' +
         ICONS.close +
@@ -254,6 +304,7 @@
       this.closeButton = root.querySelector(".asw-close");
       this.historyToggle = root.querySelector(".asw-history-toggle");
       this.title = root.querySelector(".asw-title");
+      this.headerBadge = root.querySelector(".asw-badge");
       this.subtitle = root.querySelector(".asw-subtitle");
       this.messages = root.querySelector(".asw-messages");
       this.typing = root.querySelector(".asw-typing");
@@ -265,6 +316,8 @@
 
       this.title.textContent = this.options.title;
       this.subtitle.textContent = this.options.subtitle;
+      this.root.querySelector(".asw-avatar").textContent = this.options.botAvatarText;
+      this.headerBadge.textContent = this.options.headerBadge || "";
       this.renderSuggestions();
       this.renderResourceLinks();
       this.applyVisualOptions();
@@ -284,7 +337,12 @@
       try {
         var response = await fetch(
           this.options.configEndpoint,
-          { method: "GET", mode: "cors", credentials: "omit" }
+          {
+            method: "GET",
+            mode: "cors",
+            credentials: "omit",
+            headers: this.getApiHeaders(),
+          }
         );
         if (!response.ok) return;
         var rawConfig = await response.json();
@@ -294,6 +352,15 @@
           greeting: rawConfig.greeting,
           primaryColor: rawConfig.primary_color,
           secondaryColor: rawConfig.secondary_color,
+          headerBadge: rawConfig.header_badge,
+          botAvatarText: rawConfig.bot_avatar_text,
+          inputPlaceholder: rawConfig.input_placeholder,
+          themeMode: rawConfig.theme_mode,
+          panelWidth: rawConfig.panel_width,
+          panelHeight: rawConfig.panel_height,
+          borderRadius: rawConfig.border_radius,
+          mobileFullscreen: rawConfig.mobile_fullscreen,
+          logoUrl: rawConfig.logo_url,
           fontFamily: rawConfig.font_family,
           position: rawConfig.position,
           showHistory: rawConfig.show_history,
@@ -327,7 +394,12 @@
           this.options.historyEndpoint +
             "?conversation_id=" +
             encodeURIComponent(this.conversationId),
-          { method: "GET", mode: "cors", credentials: "omit" }
+          {
+            method: "GET",
+            mode: "cors",
+            credentials: "omit",
+            headers: this.getApiHeaders(),
+          }
         );
         if (!response.ok) return;
         var data = await response.json();
@@ -355,15 +427,80 @@
     applyVisualOptions() {
       this.root.style.setProperty("--asw-primary", this.options.primaryColor);
       this.root.style.setProperty("--asw-secondary", this.options.secondaryColor);
+      this.root.style.setProperty(
+        "--asw-header-background",
+        this.getHeaderBackground()
+      );
+      this.root.style.setProperty(
+        "--asw-panel-width",
+        this.clampNumber(this.options.panelWidth, 280, 520) + "px"
+      );
+      this.root.style.setProperty(
+        "--asw-panel-height",
+        this.clampNumber(this.options.panelHeight, 360, 760) + "px"
+      );
+      this.root.style.setProperty(
+        "--asw-radius",
+        this.clampNumber(this.options.borderRadius, 10, 36) + "px"
+      );
+      this.root.classList.toggle(
+        "mobile-fullscreen",
+        this.options.mobileFullscreen !== false
+      );
       this.root.style.setProperty("--asw-font", this.options.fontFamily);
       this.panel.style.fontFamily = this.options.fontFamily;
+      this.input.placeholder = this.options.inputPlaceholder || "Ask anything...";
+      this.root.querySelector(".asw-avatar").textContent =
+        this.options.botAvatarText || "AI";
+      this.headerBadge.textContent = this.options.headerBadge || "";
+      var avatar = this.root.querySelector(".asw-avatar");
+      if (this.options.logoUrl && isSafeUrl(this.options.logoUrl)) {
+        avatar.textContent = "";
+        avatar.style.backgroundImage = "";
+        var logo = document.createElement("img");
+        logo.src = this.options.logoUrl;
+        logo.alt = "";
+        logo.referrerPolicy = "no-referrer";
+        avatar.appendChild(logo);
+      } else {
+        avatar.style.backgroundImage = "";
+        avatar.textContent = this.options.botAvatarText || "AI";
+      }
       this.historyToggle.hidden = this.options.showHistory === false;
       this.powered.hidden = this.options.showPoweredBy === false;
       if (this.options.position === "bottom-left") {
         this.root.style.right = "auto";
         this.root.style.left = "20px";
         this.root.style.alignItems = "flex-start";
+      } else {
+        this.root.style.right = "20px";
+        this.root.style.left = "auto";
+        this.root.style.alignItems = "flex-end";
       }
+    }
+
+    clampNumber(value, min, max) {
+      var number = Number(value);
+      if (!Number.isFinite(number)) return min;
+      return Math.min(max, Math.max(min, number));
+    }
+
+    getHeaderBackground() {
+      if (this.options.themeMode === "solid") {
+        return this.options.primaryColor;
+      }
+      if (this.options.themeMode === "glass") {
+        return "linear-gradient(135deg, " +
+          this.options.primaryColor +
+          "dd, " +
+          this.options.secondaryColor +
+          "cc)";
+      }
+      return "linear-gradient(135deg, " +
+        this.options.primaryColor +
+        ", " +
+        this.options.secondaryColor +
+        ")";
     }
 
     renderSuggestions() {
@@ -524,13 +661,24 @@
         method: "POST",
         mode: "cors",
         credentials: "omit",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getApiHeaders(),
         body: JSON.stringify({
           conversation_id: this.conversationId,
+          conversation_token: this.conversationToken,
           event_type: eventType,
           metadata: metadata || {},
         }),
-      }).catch(function () {});
+      })
+        .then(function (response) {
+          return response.ok ? response.json() : null;
+        })
+        .then((data) => {
+          if (data && data.conversation_token) {
+            this.conversationToken = data.conversation_token;
+            saveConversationToken(data.conversation_token);
+          }
+        })
+        .catch(function () {});
     }
 
     sendFeedback(messageId, feedback) {
@@ -545,9 +693,10 @@
         method: "POST",
         mode: "cors",
         credentials: "omit",
-        headers: { "Content-Type": "application/json" },
+        headers: this.getApiHeaders(),
         body: JSON.stringify({
           conversation_id: this.conversationId,
+          conversation_token: this.conversationToken,
           message_id: messageId,
           feedback: feedback,
         }),
@@ -574,6 +723,10 @@
 
       try {
         var result = await this.callBackend(message, this.history.slice(-8));
+        if (result.conversationToken) {
+          this.conversationToken = result.conversationToken;
+          saveConversationToken(result.conversationToken);
+        }
         this.addMessage(result.answer, "bot", result.messageId);
         this.history.push({ role: "user", content: message });
         this.history.push({ role: "assistant", content: result.answer });
@@ -610,7 +763,7 @@
           method: "POST",
           mode: "cors",
           credentials: "omit",
-          headers: { "Content-Type": "application/json" },
+          headers: this.getApiHeaders(),
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
@@ -635,6 +788,7 @@
         return {
           answer: answer.trim(),
           messageId: data.message_id || null,
+          conversationToken: data.conversation_token || "",
         };
       } catch (error) {
         if (error.name === "AbortError") {
@@ -647,12 +801,24 @@
         window.clearTimeout(timeout);
       }
     }
+
+    getApiHeaders() {
+      var headers = { "Content-Type": "application/json" };
+      if (this.options.widgetPublicKey) {
+        headers["X-Widget-Key"] = this.options.widgetPublicKey;
+      }
+      if (this.conversationToken) {
+        headers["X-Conversation-Token"] = this.conversationToken;
+      }
+      return headers;
+    }
   }
 
   function boot() {
     var globalConfig = window.AI_WIDGET_CONFIG || {};
     var options = Object.assign({}, globalConfig);
     if (scriptConfig.api) options.apiEndpoint = scriptConfig.api;
+    if (scriptConfig.widgetKey) options.widgetPublicKey = scriptConfig.widgetKey;
     if (scriptConfig.title) options.title = scriptConfig.title;
     if (scriptConfig.primaryColor) options.primaryColor = scriptConfig.primaryColor;
     window._aiWidget = new AISupportWidget(options);

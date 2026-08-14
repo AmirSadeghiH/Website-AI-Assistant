@@ -1,0 +1,49 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="support-dashboard" dir="rtl">
+  <section class="support-hero">
+    <div>
+      <span class="support-eyebrow">AI SUPPORT / BETA CONTROL ROOM</span>
+      <h1>مرکز فرماندهی دستیار هوشمند</h1>
+      <p>وضعیت مکالمات، کیفیت پاسخ‌ها، اسناد دانش و تنظیمات ویجت را از یکجا مدیریت کنید.</p>
+    </div>
+    <a class="support-primary-action" href="{% url 'admin:chat_widgetconfig_changelist' %}">
+      تنظیمات ویجت <span>←</span>
+    </a>
+  </section>
+
+  <section class="support-stat-grid">
+    <article class="support-stat-card accent-indigo"><span class="support-stat-label">کل مکالمات</span><strong>{{ dashboard_stats.conversations }}</strong><span class="support-stat-meta">از شروع سرویس</span></article>
+    <article class="support-stat-card accent-cyan"><span class="support-stat-label">پیام‌های امروز</span><strong>{{ dashboard_stats.messages_today }}</strong><span class="support-stat-meta">فعالیت روز جاری</span></article>
+    <article class="support-stat-card accent-emerald"><span class="support-stat-label">کل پیام‌ها</span><strong>{{ dashboard_stats.messages }}</strong><span class="support-stat-meta">کاربر و دستیار</span></article>
+    <article class="support-stat-card accent-amber"><span class="support-stat-label">پاسخ‌های مفید</span><strong>{{ dashboard_stats.helpful }}</strong><span class="support-stat-meta">{{ dashboard_stats.not_helpful }} پاسخ نیازمند بررسی</span></article>
+  </section>
+
+  <section class="support-main-grid">
+    <div class="support-panel">
+      <div class="support-panel-heading"><div><span class="support-eyebrow">RECENT ACTIVITY</span><h2>آخرین مکالمات</h2></div><a href="{% url 'admin:chat_conversation_changelist' %}">مشاهده همه</a></div>
+      <div class="support-conversation-list">
+        {% for conversation in dashboard_recent %}
+          <a class="support-conversation-row" href="{% url 'admin:chat_conversation_change' conversation.pk %}">
+            <span class="support-conversation-avatar">AI</span>
+            <span class="support-conversation-copy"><strong>{{ conversation.external_id|truncatechars:26 }}</strong><small>{{ conversation.last_activity_at|date:"Y/m/d H:i" }} · {{ conversation.messages.count }} پیام</small></span>
+            <span class="support-row-arrow">←</span>
+          </a>
+        {% empty %}
+          <div class="support-empty-state"><span>✦</span><p>هنوز مکالمه‌ای ثبت نشده است.</p></div>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="support-panel support-quick-panel">
+      <div class="support-panel-heading"><div><span class="support-eyebrow">QUICK ACCESS</span><h2>مدیریت سریع</h2></div></div>
+      <div class="support-quick-links">
+        <a href="{% url 'admin:chat_document_changelist' %}"><span class="support-quick-icon">⌁</span><span><strong>اسناد دانش</strong><small>آپلود و ساخت embedding</small></span><b>←</b></a>
+        <a href="{% url 'admin:chat_widgetconfig_changelist' %}"><span class="support-quick-icon">◈</span><span><strong>تنظیمات ویجت</strong><small>ظاهر، متن و رفتار</small></span><b>←</b></a>
+        <a href="{% url 'admin:chat_analyticsevent_changelist' %}"><span class="support-quick-icon">⌁</span><span><strong>تحلیل رویدادها</strong><small>رفتار و خطاهای سیستم</small></span><b>←</b></a>
+      </div>
+    </div>
+  </section>
+</div>
+{% endblock %}

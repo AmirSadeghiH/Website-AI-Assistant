@@ -6,15 +6,15 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from contextlib import contextmanager
 from pathlib import Path
 from xml.etree import ElementTree
 
-import fitz
 import numpy as np
+from filelock import FileLock, Timeout
+import pymupdf
 from django.conf import settings
 from django.utils import timezone
-
-from rag.build_embeddings import EmbeddingBuilder
 
 from .models import Document
 
@@ -26,6 +26,17 @@ SUPPORTED_TYPES = {
     ".docx": "docx",
 }
 MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+
+
+@contextmanager
+def corpus_lock(timeout=30):
+    data_dir = Path(settings.BASE_DIR) / "Data"
+    lock = FileLock(str(data_dir / ".corpus.lock"), timeout=timeout)
+    try:
+        with lock:
+            yield
+    except Timeout as exc:
+        raise RuntimeError("The knowledge corpus is busy. Try again shortly.") from exc
 
 
 def detect_file_type(name):
@@ -49,7 +60,7 @@ def clean_text(text):
 
 def extract_pdf(path):
     pages = []
-    with fitz.open(path) as pdf:
+    with pymupdf.open(path) as pdf:
         for page_number, page in enumerate(pdf, start=1):
             text = clean_text(page.get_text())
             if text:
@@ -122,66 +133,74 @@ def rebuild_document_embeddings(document):
     file_type = detect_file_type(path.name)
     if not file_type:
         raise ValueError("فرمت فایل پشتیبانی نمی‌شود. فقط PDF، TXT و DOCX مجاز هستند.")
+    content_hash = sha256_file(path)
+    if Document.objects.filter(
+        content_hash=content_hash,
+    ).exclude(pk=document.pk).exists():
+        raise ValueError("این فایل قبلاً در پایگاه دانش پردازش شده است.")
 
     pages = extract_document(path, file_type)
     if not pages:
         raise ValueError("از فایل انتخاب‌شده متن قابل استفاده‌ای استخراج نشد.")
 
     document_key = f"uploaded-document-{document.pk}"
+    from rag.build_embeddings import EmbeddingBuilder
+
     builder = EmbeddingBuilder()
     chunks, metadata = builder.chunk_doc(pages, document_key)
     if not chunks:
         raise ValueError("پس از chunk بندی، محتوای قابل embedding تولید نشد.")
     embeddings = builder.embed_chunks(chunks).astype("float32")
 
-    data_dir, old_chunks, old_metadata, old_embeddings = _read_artifacts()
-    if old_embeddings is not None and len(old_chunks) != len(old_embeddings):
-        raise ValueError("فایل‌های corpus فعلی با یکدیگر هم‌خوانی ندارند.")
+    with corpus_lock():
+        data_dir, old_chunks, old_metadata, old_embeddings = _read_artifacts()
+        if old_embeddings is not None and len(old_chunks) != len(old_embeddings):
+            raise ValueError("فایل‌های corpus فعلی با یکدیگر هم‌خوانی ندارند.")
 
-    keep_indexes = [
-        index
-        for index, item in enumerate(old_metadata)
-        if item.get("doc_id") != document_key
-    ]
-    if old_embeddings is None:
-        kept_embeddings = np.empty((0, embeddings.shape[1]), dtype="float32")
-        kept_chunks = []
-        kept_metadata = []
-    else:
-        kept_embeddings = old_embeddings[keep_indexes]
-        kept_chunks = [old_chunks[index] for index in keep_indexes]
-        kept_metadata = [old_metadata[index] for index in keep_indexes]
+        keep_indexes = [
+            index
+            for index, item in enumerate(old_metadata)
+            if item.get("doc_id") != document_key
+        ]
+        if old_embeddings is None:
+            kept_embeddings = np.empty((0, embeddings.shape[1]), dtype="float32")
+            kept_chunks = []
+            kept_metadata = []
+        else:
+            kept_embeddings = old_embeddings[keep_indexes]
+            kept_chunks = [old_chunks[index] for index in keep_indexes]
+            kept_metadata = [old_metadata[index] for index in keep_indexes]
 
-    for item in metadata:
-        item["document_id"] = document.pk
-        item["document_title"] = document.title
-        item["source_type"] = file_type
+        for item in metadata:
+            item["document_id"] = document.pk
+            item["document_title"] = document.title
+            item["source_type"] = file_type
 
-    final_chunks = kept_chunks + chunks
-    final_metadata = kept_metadata + metadata
-    final_embeddings = np.vstack([kept_embeddings, embeddings])
+        final_chunks = kept_chunks + chunks
+        final_metadata = kept_metadata + metadata
+        final_embeddings = np.vstack([kept_embeddings, embeddings])
 
-    _write_atomic(
-        data_dir / "chunks.json",
-        lambda target: target.write_text(
-            json.dumps(final_chunks, ensure_ascii=False),
-            encoding="utf-8",
-        ),
-    )
-    _write_atomic(
-        data_dir / "metadata.json",
-        lambda target: target.write_text(
-            json.dumps(final_metadata, ensure_ascii=False),
-            encoding="utf-8",
-        ),
-    )
-    _write_atomic(
-        data_dir / "embeddings.npy",
-        lambda target: np.save(target, final_embeddings),
-    )
+        _write_atomic(
+            data_dir / "chunks.json",
+            lambda target: target.write_text(
+                json.dumps(final_chunks, ensure_ascii=False),
+                encoding="utf-8",
+            ),
+        )
+        _write_atomic(
+            data_dir / "metadata.json",
+            lambda target: target.write_text(
+                json.dumps(final_metadata, ensure_ascii=False),
+                encoding="utf-8",
+            ),
+        )
+        _write_atomic(
+            data_dir / "embeddings.npy",
+            lambda target: np.save(target, final_embeddings),
+        )
 
     document.file_type = file_type
-    document.content_hash = sha256_file(path)
+    document.content_hash = content_hash
     document.chunk_count = len(chunks)
     document.embedding_count = len(embeddings)
     document.status = "ready"
@@ -201,6 +220,49 @@ def rebuild_document_embeddings(document):
     )
 
 
+def remove_document_embeddings(document_id):
+    with corpus_lock():
+        data_dir, old_chunks, old_metadata, old_embeddings = _read_artifacts()
+        if old_embeddings is None:
+            return
+        if len(old_chunks) != len(old_metadata) or len(old_chunks) != len(old_embeddings):
+            raise ValueError("فایل‌های corpus فعلی با یکدیگر هم‌خوانی ندارند.")
+
+        document_key = f"uploaded-document-{document_id}"
+        keep_indexes = [
+            index
+            for index, item in enumerate(old_metadata)
+            if item.get("doc_id") != document_key
+        ]
+        if len(keep_indexes) == len(old_metadata):
+            return
+
+        _write_atomic(
+            data_dir / "chunks.json",
+            lambda target: target.write_text(
+                json.dumps(
+                    [old_chunks[index] for index in keep_indexes],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            ),
+        )
+        _write_atomic(
+            data_dir / "metadata.json",
+            lambda target: target.write_text(
+                json.dumps(
+                    [old_metadata[index] for index in keep_indexes],
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            ),
+        )
+        _write_atomic(
+            data_dir / "embeddings.npy",
+            lambda target: np.save(target, old_embeddings[keep_indexes]),
+        )
+
+
 def process_document(document_id):
     document = Document.objects.get(pk=document_id)
     document.status = "processing"
@@ -215,17 +277,20 @@ def process_document(document_id):
         raise
 
 
-def enqueue_document(document_id):
-    document = Document.objects.get(pk=document_id)
-    document.status = "queued"
-    document.error_message = ""
-    document.save(update_fields=("status", "error_message", "updated_at"))
+def enqueue_documents(document_ids):
+    documents = Document.objects.filter(pk__in=document_ids).exclude(
+        status__in=("queued", "processing"),
+    )
+    ids = list(documents.values_list("pk", flat=True))
+    if not ids:
+        return 0
+    documents.update(status="queued", error_message="", updated_at=timezone.now())
 
     command = [
         sys.executable,
         str(Path(settings.BASE_DIR) / "manage.py"),
-        "process_document",
-        str(document_id),
+        "process_documents",
+        *[str(document_id) for document_id in ids],
     ]
     log_path = Path(settings.BASE_DIR) / "embedding_jobs.log"
     log_handle = log_path.open("a", encoding="utf-8")
@@ -243,3 +308,8 @@ def enqueue_document(document_id):
         subprocess.Popen(command, **kwargs)
     finally:
         log_handle.close()
+    return len(ids)
+
+
+def enqueue_document(document_id):
+    return enqueue_documents([document_id])

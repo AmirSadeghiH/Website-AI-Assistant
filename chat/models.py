@@ -27,6 +27,26 @@ class WidgetConfig(models.Model):
     )
     primary_color = models.CharField(max_length=20, default="#5048E5")
     secondary_color = models.CharField(max_length=20, default="#7C3AED")
+    header_badge = models.CharField(max_length=40, default="ONLINE")
+    bot_avatar_text = models.CharField(max_length=8, default="AI")
+    input_placeholder = models.CharField(
+        max_length=120,
+        default="سؤال خود را بنویسید...",
+    )
+    theme_mode = models.CharField(
+        max_length=20,
+        choices=(
+            ("gradient", "Gradient"),
+            ("solid", "Solid"),
+            ("glass", "Glass"),
+        ),
+        default="gradient",
+    )
+    panel_width = models.PositiveIntegerField(default=380)
+    panel_height = models.PositiveIntegerField(default=600)
+    border_radius = models.PositiveIntegerField(default=22)
+    mobile_fullscreen = models.BooleanField(default=True)
+    logo_url = models.URLField(max_length=1000, blank=True)
     font_family = models.CharField(
         max_length=120,
         default="Inter, ui-sans-serif, system-ui, sans-serif",

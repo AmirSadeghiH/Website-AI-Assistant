@@ -1,17 +1,12 @@
-from sentence_transformers import SentenceTransformer
-import numpy as np
-from typing import List
-from  openai import OpenAI
-from dotenv import load_dotenv
 import os
+from typing import List
 
-import sys
-import io
+import numpy as np
+from dotenv import load_dotenv
+from openai import OpenAI
+from sentence_transformers import SentenceTransformer
 
 # تنظیم encoding برای خروجی و ورودی
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-
 load_dotenv()
 
 
@@ -21,12 +16,26 @@ DEFAULT_EMBEDDING_MODEL = (
     or os.getenv('EMBED_MODEL')
     or 'text-embedding-3-small'
 )
+DEFAULT_EMBEDDING_BASE_URL = (
+    os.getenv("EMBEDDING_API_URL")
+    or os.getenv("EMBEDDING_BASE_URL")
+    or os.getenv("BASE_URL")
+    or "https://api.gapgpt.app/v1"
+)
 
 
 class Embedder:
 
 
-    def __init__(self,embedder_type:str='api', model_name: str = "intfloat/multilingual-e5-small",device: str = 'cpu', model_name_api:str=DEFAULT_EMBEDDING_MODEL,base_url:str='https://api.gapgpt.app/v1',api_key:str=API_KEY):
+    def __init__(
+        self,
+        embedder_type: str = "api",
+        model_name: str = "intfloat/multilingual-e5-small",
+        device: str = "cpu",
+        model_name_api: str = DEFAULT_EMBEDDING_MODEL,
+        base_url: str = DEFAULT_EMBEDDING_BASE_URL,
+        api_key: str = API_KEY,
+    ):
         self.embedder_type=embedder_type
         if self.embedder_type!='api':
             self.device = device

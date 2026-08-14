@@ -11,6 +11,7 @@ https://docs.djangoproject.com/en/6.1/ref/settings/
 """
 
 import os
+import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -19,6 +20,8 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
+APP_VERSION = "0.9.9"
+IS_TESTING = any(arg == "test" or arg.startswith("test") for arg in sys.argv)
 
 
 # Quick-start development settings - unsuitable for production
@@ -51,12 +54,14 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'corsheaders',
+    'rest_framework',
     'chat',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'chat.middleware.ApiRequestSizeLimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -72,7 +77,7 @@ DEFAULT_CHARSET = 'utf-8'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -90,12 +95,26 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-DATABASES = {
-    'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+if os.getenv("DB_NAME"):
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": os.getenv("DB_NAME"),
+            "USER": os.getenv("DB_USER", ""),
+            "PASSWORD": os.getenv("DB_PASSWORD", ""),
+            "HOST": os.getenv("DB_HOST", "127.0.0.1"),
+            "PORT": os.getenv("DB_PORT", "5432"),
+            "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+            "OPTIONS": {"connect_timeout": 5},
+        }
     }
-}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.sqlite3",
+            "NAME": BASE_DIR / "db.sqlite3",
+        }
+    }
 
 
 # Password validation
@@ -134,8 +153,24 @@ USE_TZ = True
 
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
+STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+
+CACHES = {
+    "default": {
+        "BACKEND": os.getenv(
+            "CACHE_BACKEND",
+            "django.core.cache.backends.locmem.LocMemCache",
+        ),
+        "LOCATION": os.getenv("CACHE_LOCATION", "ai-support-cache"),
+        "TIMEOUT": int(os.getenv("CACHE_TIMEOUT", "300")),
+        "OPTIONS": {
+            "ignore_exc": True,
+        },
+    }
+}
 
 JAZZMIN_SETTINGS = {
     'site_title': 'AI Support Admin',
@@ -143,7 +178,7 @@ JAZZMIN_SETTINGS = {
     'site_brand': 'AI Support',
     'welcome_sign': 'مرکز مدیریت دستیار هوشمند',
     'copyright': 'AI Support',
-    'show_ui_builder': DEBUG,
+    'show_ui_builder': False,
     'navigation_expanded': True,
     'custom_css': 'admin/css/support_admin.css',
     'icons': {
@@ -166,6 +201,59 @@ CORS_ALLOW_ALL_ORIGINS = os.getenv(
     'True' if DEBUG else 'False',
 ).lower() in ('true', '1', 'yes')
 CORS_ALLOW_HEADERS = ['content-type', 'authorization', 'x-csrftoken']
+CORS_URLS_REGEX = r'^/api/.*$'
+
+WIDGET_PUBLIC_KEY = os.getenv("WIDGET_PUBLIC_KEY", "").strip()
+WIDGET_REQUIRE_KEY = os.getenv(
+    "WIDGET_REQUIRE_KEY",
+    "False" if DEBUG or IS_TESTING else "True",
+).lower() in ("true", "1", "yes")
+WIDGET_ALLOWED_ORIGINS = tuple(
+    origin.strip().rstrip("/")
+    for origin in os.getenv(
+        "WIDGET_ALLOWED_ORIGINS",
+        os.getenv("CORS_ALLOWED_ORIGINS", ""),
+    ).split(",")
+    if origin.strip()
+)
+WIDGET_RATE = os.getenv("WIDGET_RATE", "30/minute")
+WIDGET_EVENTS_RATE = os.getenv("WIDGET_EVENTS_RATE", "120/minute")
+WIDGET_FEEDBACK_RATE = os.getenv("WIDGET_FEEDBACK_RATE", "60/minute")
+RAG_MAX_CONCURRENT = int(os.getenv("RAG_MAX_CONCURRENT", "8"))
+RAG_RESPONSE_CACHE_SECONDS = int(
+    os.getenv("RAG_RESPONSE_CACHE_SECONDS", "60")
+)
+
+REST_FRAMEWORK = {
+    "DEFAULT_RENDERER_CLASSES": (
+        "rest_framework.renderers.JSONRenderer",
+    ),
+    "DEFAULT_PARSER_CLASSES": (
+        "rest_framework.parsers.JSONParser",
+    ),
+    "DEFAULT_THROTTLE_RATES": {
+        "widget": WIDGET_RATE,
+        "widget_events": WIDGET_EVENTS_RATE,
+        "widget_feedback": WIDGET_FEEDBACK_RATE,
+    },
+    "UNAUTHENTICATED_USER": None,
+}
+
+SECURE_PROXY_SSL_HEADER = (
+    ("HTTP_X_FORWARDED_PROTO", "https")
+    if os.getenv("TRUST_PROXY_SSL", "False").lower() in ("true", "1", "yes")
+    else None
+)
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG
+SECURE_REFERRER_POLICY = "same-origin"
+SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() in (
+    "true",
+    "1",
+    "yes",
+)
+SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
 
 
 # Email

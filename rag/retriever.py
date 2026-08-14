@@ -1,128 +1,135 @@
 import json
+from functools import lru_cache
+from pathlib import Path
+from typing import Dict, List, Optional
+
 import faiss
 import numpy as np
-from pathlib import Path
-from typing import List, Dict, Optional
+
 from rag.embeddings import Embedder
 
 
-import sys
-import io
-
-# تنظیم encoding برای خروجی و ورودی
-# sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-# sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-
-
 class Retriever:
-    """
-    FAISS-based retriever for Persian RAG.
-    Uses precomputed chunks, embeddings, and metadata.
-    """
+    """FAISS retriever with bounded search and per-process query embedding cache."""
 
     def __init__(
         self,
-        chunks_path: str = "./Data/chunks.json",
-        metadata_path: str = "./Data/metadata.json",
-        embeddings_path: str = "./Data/embeddings.npy",
+        chunks_path: str | None = None,
+        metadata_path: str | None = None,
+        embeddings_path: str | None = None,
         device: Optional[str] = None,
         normalize: bool = True,
     ):
-        # Load chunks
-        with open(chunks_path, "r", encoding="utf-8") as f:
-            self.chunks: List[str] = json.load(f)
+        data_dir = Path(__file__).resolve().parent.parent / "Data"
+        chunks_path = chunks_path or str(data_dir / "chunks.json")
+        metadata_path = metadata_path or str(data_dir / "metadata.json")
+        embeddings_path = embeddings_path or str(data_dir / "embeddings.npy")
 
-        # Load metadata
-        with open(metadata_path, "r", encoding="utf-8") as f:
-            self.metadata: List[Dict] = json.load(f)
+        try:
+            with open(chunks_path, "r", encoding="utf-8") as file:
+                self.chunks: List[str] = json.load(file)
+            with open(metadata_path, "r", encoding="utf-8") as file:
+                self.metadata: List[Dict] = json.load(file)
+            self.embeddings: np.ndarray = np.load(embeddings_path).astype("float32")
+        except FileNotFoundError as exc:
+            raise RuntimeError(
+                "RAG corpus is incomplete. chunks.json, metadata.json and "
+                "embeddings.npy must all exist."
+            ) from exc
 
-        # Load embeddings
-        self.embeddings: np.ndarray = np.load(embeddings_path).astype("float32")
-        assert len(self.chunks) == self.embeddings.shape[0], "Chunks and embeddings count mismatch"
+        if (
+            not self.chunks
+            or len(self.chunks) != len(self.metadata)
+            or len(self.chunks) != self.embeddings.shape[0]
+            or self.embeddings.ndim != 2
+        ):
+            raise RuntimeError("RAG corpus artifacts are inconsistent.")
 
-        # Normalize for cosine similarity
         if normalize:
             faiss.normalize_L2(self.embeddings)
 
-        # FAISS index
-        dim = self.embeddings.shape[1]
-        self.index = faiss.IndexFlatIP(dim)  # Inner product = cosine similarity if normalized
+        dimension = self.embeddings.shape[1]
+        self.index = faiss.IndexFlatIP(dimension)
         self.index.add(self.embeddings)
-
-        # Embedder for queries
         self.embedder = Embedder(device=device)
+        self._retrieve_cache = {}
 
-        print(f"[Retriever] Loaded {len(self.chunks)} chunks with metadata and embeddings")
+    @lru_cache(maxsize=512)
+    def _embed_query_cached(self, query: str) -> np.ndarray:
+        return self.embedder.embed_query_api(query).astype("float32")
 
     def retrieve(
         self,
         query: str,
-        top_k: int = 10,
+        top_k: int = 5,
         abs_min_score: float = 0.10,
         rel_score_drop: float = 0.4,
         fallback_top_k: int = 5,
     ) -> List[Dict]:
-        """
-        Retrieve top_k relevant chunks for a query.
-        Returns list of dicts: {text, score, metadata}
-        """
-        print(f"[DEBUG] Retrieving for query: {query}")
-        query_emb = self.embedder.embed_query_api(query).astype("float32")
+        query = str(query).strip()[:2000]
+        query_emb = self._embed_query_cached(query).copy()
         faiss.normalize_L2(query_emb.reshape(1, -1))
-
-        scores, indices = self.index.search(query_emb.reshape(1, -1), self.chunks.__len__())
+        search_k = min(
+            len(self.chunks),
+            max(top_k * 4, fallback_top_k, 10),
+        )
+        scores, indices = self.index.search(
+            query_emb.reshape(1, -1),
+            search_k,
+        )
         scores, indices = scores[0], indices[0]
-
-        max_score = scores[0] if scores.size > 0 else 0.0
-        candidates = []
+        max_score = scores[0] if len(scores) else 0.0
         query_terms = self._query_terms(query)
+        candidates = []
 
         for score, idx in zip(scores, indices):
+            if idx < 0:
+                continue
             text = self.chunks[idx]
             lexical_score = self._lexical_score(query_terms, text)
             if score < abs_min_score and lexical_score == 0:
                 continue
             if score < max_score * rel_score_drop and lexical_score == 0:
                 continue
-            candidates.append({
-                "text": text,
-                "score": float(score) + lexical_score,
-                "vector_score": float(score),
-                "metadata": self.metadata[idx],
-            })
+            candidates.append(
+                {
+                    "text": text,
+                    "score": float(score) + lexical_score,
+                    "vector_score": float(score),
+                    "metadata": self.metadata[idx],
+                }
+            )
 
         candidates.sort(key=lambda item: item["score"], reverse=True)
-        results = candidates[:top_k]
+        if candidates:
+            return candidates[:top_k]
 
-        # Fallback: if no results pass threshold, take top fallback_top_k
-        if len(results) == 0:
-            for i in range(min(fallback_top_k, len(indices))):
-                idx = indices[i]
-                results.append({
-                    "text": self.chunks[idx],
-                    "score": float(scores[i]),
-                    "vector_score": float(scores[i]),
-                    "metadata": self.metadata[idx],
-                })
-
-        return results
+        return [
+            {
+                "text": self.chunks[idx],
+                "score": float(scores[pos]),
+                "vector_score": float(scores[pos]),
+                "metadata": self.metadata[idx],
+            }
+            for pos, idx in enumerate(indices[:fallback_top_k])
+            if idx >= 0
+        ]
 
     @staticmethod
     def _normalize_for_match(value: str) -> str:
         return (
-            value.replace("ي", "ی")
-            .replace("ى", "ی")
-            .replace("ك", "ک")
+            value.replace("ی", "ي")
+            .replace("ى", "ي")
+            .replace("ک", "ك")
             .replace("\u200c", "")
-            .replace("‌", "")
             .lower()
         )
 
     @classmethod
     def _query_terms(cls, query: str) -> List[str]:
         stop_words = {
-            "است", "هست", "چیه", "چیست", "برای", "چطور", "چگونه",
-            "می", "توانم", "شود", "یک", "این", "آن", "را", "به",
+            "است", "هست", "برای", "چطور", "چیست", "میشه", "توانم",
+            "شود", "یک", "این", "آن", "را", "به",
         }
         normalized = cls._normalize_for_match(query)
         return [
@@ -136,14 +143,4 @@ class Retriever:
             return 0.0
         normalized_text = cls._normalize_for_match(text)
         matched = sum(1 for term in query_terms if term in normalized_text)
-        # A small boost keeps vector similarity primary while rescuing
-        # exact business terms such as «ارسال» and «بلوکارت».
         return matched * 0.20
-
-
-if __name__ == "__main__":
-    retriever = Retriever()
-    query = "ثبت‌نام دانشجوی مهمان"
-    top_chunks = retriever.retrieve(query)
-    for c in top_chunks:
-        print(f"Score: {c['score']:.3f}, Text: {c['text'][:100]}...")

@@ -16,6 +16,33 @@ body {
   font-family: Vazirmatn, IRANSans, Tahoma, sans-serif;
 }
 
+.app-main,
+.app-content,
+.app-content-header,
+#jazzy-sidebar,
+#jazzy-navbar {
+  direction: rtl;
+}
+
+.app-content .support-dashboard {
+  max-width: 1440px;
+  margin: 0 auto;
+  padding: 8px 8px 28px;
+}
+
+.app-content .support-dashboard .support-hero {
+  margin-top: 4px;
+}
+
+.app-content .support-dashboard a {
+  text-decoration: none;
+}
+
+.badge {
+  border-radius: 999px;
+  padding: .42em .7em;
+}
+
 #header {
   min-height: 72px;
   padding: 0 28px;

@@ -1,9 +1,13 @@
 from django.contrib import admin
 from django.contrib.admin import AdminSite
+from django.contrib.auth import get_user_model
+from django.contrib.auth.admin import UserAdmin
+from django.contrib.auth.models import Group
 from django.db.models import Count, Q
+from django import forms
+from django.utils.html import format_html
 from django.utils import timezone
 
-from .document_pipeline import enqueue_document
 from .models import AnalyticsEvent, Conversation, Document, Message, WidgetConfig
 
 
@@ -60,6 +64,15 @@ class WidgetConfigAdmin(admin.ModelAdmin):
                     "greeting",
                     "primary_color",
                     "secondary_color",
+                    "header_badge",
+                    "bot_avatar_text",
+                    "input_placeholder",
+                    "theme_mode",
+                    "panel_width",
+                    "panel_height",
+                    "border_radius",
+                    "mobile_fullscreen",
+                    "logo_url",
                     "font_family",
                     "position",
                     "suggestions",
@@ -160,18 +173,40 @@ class MessageAdmin(admin.ModelAdmin):
 
 @admin.action(description="شروع پردازش و ساخت embedding برای اسناد انتخاب‌شده")
 def process_documents(modeladmin, request, queryset):
-    count = 0
-    for document in queryset.exclude(status__in=("queued", "processing")):
-        enqueue_document(document.pk)
-        count += 1
+    from .document_pipeline import enqueue_documents
+
+    count = enqueue_documents(queryset.values_list("pk", flat=True))
     modeladmin.message_user(
         request,
         f"{count} سند برای پردازش در پس‌زمینه صف شد.",
     )
 
 
+class DocumentAdminForm(forms.ModelForm):
+    class Meta:
+        model = Document
+        fields = ("title", "file")
+
+    def clean_file(self):
+        uploaded = self.cleaned_data["file"]
+        if not uploaded:
+            return uploaded
+        from .document_pipeline import MAX_DOCUMENT_BYTES, detect_file_type
+
+        if not detect_file_type(uploaded.name):
+            raise forms.ValidationError(
+                "فرمت مجاز فقط PDF، TXT و DOCX است.",
+            )
+        if uploaded.size > MAX_DOCUMENT_BYTES:
+            raise forms.ValidationError(
+                "حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.",
+            )
+        return uploaded
+
+
 @admin.register(Document, site=admin_site)
 class DocumentAdmin(admin.ModelAdmin):
+    form = DocumentAdminForm
     list_display = (
         "title",
         "file_type",
@@ -229,13 +264,44 @@ class DocumentAdmin(admin.ModelAdmin):
     )
 
     def save_model(self, request, obj, form, change):
+        from .document_pipeline import detect_file_type
+
         if obj.file and not obj.title:
             obj.title = obj.file.name.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+        if obj.file:
+            obj.file_type = detect_file_type(obj.file.name) or ""
+        if change and "file" in form.changed_data:
+            obj.status = "uploaded"
+            obj.error_message = ""
         super().save_model(request, obj, form, change)
+
+    def delete_model(self, request, obj):
+        from .document_pipeline import remove_document_embeddings
+
+        remove_document_embeddings(obj.pk)
+        file_field = obj.file
+        super().delete_model(request, obj)
+        if file_field:
+            file_field.delete(save=False)
+
+    def delete_queryset(self, request, queryset):
+        for document in queryset:
+            self.delete_model(request, document)
 
     @admin.display(description="وضعیت", ordering="status")
     def status_badge(self, obj):
-        return obj.get_status_display()
+        palette = {
+            "ready": "success",
+            "processing": "info",
+            "queued": "warning",
+            "failed": "danger",
+        }
+        color = palette.get(obj.status, "secondary")
+        return format_html(
+            '<span class="badge bg-{}">{}</span>',
+            color,
+            obj.get_status_display(),
+        )
 
 
 class AnalyticsEventAdmin(admin.ModelAdmin):
@@ -250,3 +316,5 @@ admin_site.register(WidgetConfig, WidgetConfigAdmin)
 admin_site.register(Conversation, ConversationAdmin)
 admin_site.register(Message, MessageAdmin)
 admin_site.register(AnalyticsEvent, AnalyticsEventAdmin)
+admin_site.register(get_user_model(), UserAdmin)
+admin_site.register(Group)

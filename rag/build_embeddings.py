@@ -12,9 +12,6 @@ import sys
 import io
 
 # تنظیم encoding برای خروجی و ورودی
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
-sys.stdin = io.TextIOWrapper(sys.stdin.buffer, encoding='utf-8')
-
 DOC_PATH = Path("./Data/")  
 CHUNKS_PATH = Path("./Data/chunks.json")
 METADATA_PATH = Path("./Data/metadata.json")
