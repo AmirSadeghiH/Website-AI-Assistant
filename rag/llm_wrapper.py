@@ -1,9 +1,12 @@
+import logging
 import os
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 API_KEY = os.getenv("LLM_API_KEY")
 DEFAULT_BASE_URL = (
@@ -25,21 +28,38 @@ class OpenRouterLLM:
         max_tokens: int | None = None,
         summary: bool = True,
         timeout: float | None = None,
+        max_retries: int | None = None,
         system_prompt="",
     ):
-        request_timeout = timeout or float(os.getenv("LLM_TIMEOUT_SECONDS", "30"))
-        max_retries = int(os.getenv("LLM_MAX_RETRIES", "1"))
-        self.client = OpenAI(
-            api_key=api_key,
-            base_url=base_url,
-            timeout=request_timeout,
-            max_retries=max_retries,
+        # Retries default to 0 for the interactive chat path: a bounded,
+        # predictable latency matters more than a second attempt when the
+        # widget already surfaces a friendly retry message.
+        request_timeout = timeout if timeout is not None else float(
+            os.getenv("LLM_TIMEOUT_SECONDS", "30")
         )
+        retries = max_retries if max_retries is not None else int(
+            os.getenv("LLM_MAX_RETRIES", "0")
+        )
+        # Client is created lazily on first use so an empty corpus (fresh
+        # install with no keys configured yet) never needs a provider.
+        self._client = None
+        self._client_options = {
+            "api_key": api_key,
+            "base_url": base_url,
+            "timeout": request_timeout,
+            "max_retries": retries,
+        }
         self.model = model
         self.temperature = min(1.0, max(0.0, float(temperature)))
         self.max_tokens = max_tokens or int(os.getenv("LLM_MAX_TOKENS", "700"))
         self.summary = summary
         self.system_prompt = system_prompt
+
+    @property
+    def client(self):
+        if self._client is None:
+            self._client = OpenAI(**self._client_options)
+        return self._client
 
     def generate(self, prompt: str) -> str:
         response = self.client.chat.completions.create(

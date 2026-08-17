@@ -21,13 +21,15 @@ from rest_framework.decorators import (
 )
 from rest_framework.response import Response
 
-from .api_permissions import WidgetAccessPermission
+from .api_permissions import WidgetAccessPermission, get_widget_access_config
 from .api_throttles import (
     WidgetEventsThrottle,
     WidgetFeedbackThrottle,
     WidgetRateThrottle,
 )
-from .models import AnalyticsEvent, Conversation, Message, WidgetConfig
+from .models import AnalyticsEvent, Conversation, Message, ProviderSettings, WidgetConfig
+from .services import CorpusConfigError
+from rag.retriever import EmbeddingDimensionMismatchError
 from .serializers import (
     ChatRequestSerializer,
     EventSerializer,
@@ -122,6 +124,11 @@ def _valid_conversation_token(external_id, token):
     )
 
 
+def _widget_key_configured():
+    """True when an installation key is set (admin panel or environment)."""
+    return bool(get_widget_access_config()[0])
+
+
 def get_widget_config():
     config = cache.get(_config_cache_key)
     if config is None:
@@ -165,29 +172,48 @@ def widget_config_payload(config):
     }
 
 
+CORPUS_ARTIFACTS = (
+    Path(settings.BASE_DIR) / "Data" / "chunks.json",
+    Path(settings.BASE_DIR) / "Data" / "metadata.json",
+    Path(settings.BASE_DIR) / "Data" / "embeddings.npy",
+)
+
+
 def get_rag_service():
     global _rag_service, _rag_artifact_signature
-    artifact_paths = (
-        Path(settings.BASE_DIR) / "Data" / "chunks.json",
-        Path(settings.BASE_DIR) / "Data" / "metadata.json",
-        Path(settings.BASE_DIR) / "Data" / "embeddings.npy",
-    )
     signature = tuple(
         (str(path), path.stat().st_mtime_ns if path.exists() else 0)
-        for path in artifact_paths
+        for path in CORPUS_ARTIFACTS
     )
     with _rag_lock:
         config = get_widget_config()
+        provider = _get_provider_row()
+        signature += (
+            config.updated_at.timestamp(),
+            provider.updated_at.timestamp() if provider is not None else 0,
+        )
         if _rag_service is None or signature != _rag_artifact_signature:
-            from .services import RAGService
             from .document_pipeline import corpus_lock
+            from .services import RAGService, get_provider_values
 
-            with corpus_lock(timeout=10):
-                _rag_service = RAGService(config=config)
+            try:
+                with corpus_lock(timeout=10):
+                    _rag_service = RAGService(
+                        config=config,
+                        provider=get_provider_values(),
+                    )
+            except RuntimeError as exc:
+                # Corpus missing/partial or embedding model changed since the
+                # documents were processed. Surface a clear, actionable error.
+                raise CorpusConfigError(str(exc)) from exc
             _rag_artifact_signature = signature
         else:
             _rag_service.apply_config(config)
         return _rag_service
+
+
+def _get_provider_row():
+    return ProviderSettings.objects.first()
 
 
 def find_or_create_conversation(external_id, request, conversation_token=""):
@@ -196,7 +222,7 @@ def find_or_create_conversation(external_id, request, conversation_token=""):
         external_id = f"conversation_{uuid.uuid4().hex}"
     conversation = Conversation.objects.filter(external_id=external_id).first()
     if conversation is not None:
-        if getattr(settings, "WIDGET_PUBLIC_KEY", "") and not _valid_conversation_token(
+        if _widget_key_configured() and not _valid_conversation_token(
             external_id,
             conversation_token,
         ):
@@ -214,7 +240,7 @@ def find_or_create_conversation(external_id, request, conversation_token=""):
         conversation = Conversation.objects.filter(external_id=external_id).first()
         if conversation is None:
             raise
-        if getattr(settings, "WIDGET_PUBLIC_KEY", "") and not _valid_conversation_token(
+        if _widget_key_configured() and not _valid_conversation_token(
             external_id,
             conversation_token,
         ):
@@ -253,12 +279,13 @@ def health(request):
     except Exception:
         checks["database"] = "error"
 
-    artifact_paths = (
-        Path(settings.BASE_DIR) / "Data" / "chunks.json",
-        Path(settings.BASE_DIR) / "Data" / "metadata.json",
-        Path(settings.BASE_DIR) / "Data" / "embeddings.npy",
-    )
-    if not all(path.exists() for path in artifact_paths):
+    existing = [path.exists() for path in CORPUS_ARTIFACTS]
+    if all(existing):
+        checks["corpus"] = "ok"
+    elif not any(existing):
+        # A fresh install with no processed documents is a valid empty corpus.
+        checks["corpus"] = "ok"
+    else:
         checks["corpus"] = "error"
     healthy = all(value == "ok" for value in checks.values())
     return Response(
@@ -296,24 +323,28 @@ def conversation_history(request):
     conversation = Conversation.objects.filter(external_id=external_id).first()
     if conversation is None:
         return Response({"messages": []})
-    if getattr(settings, "WIDGET_PUBLIC_KEY", "") and not _valid_conversation_token(
+    if _widget_key_configured() and not _valid_conversation_token(
         external_id,
         request.headers.get("X-Conversation-Token", ""),
     ):
         return Response({"detail": "Conversation access denied."}, status=403)
     messages = list(
         conversation.messages.filter(role__in=("user", "assistant"))
+        .order_by("-created_at", "-id")[:100]
         .values("id", "role", "content", "feedback", "created_at")
     )
+    messages.reverse()
     for item in messages:
         item["created_at"] = item["created_at"].isoformat()
-    return Response(
+    response = Response(
         {
             "conversation_id": conversation.external_id,
             "messages": messages,
             "is_archived": conversation.is_archived,
         }
     )
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @api_view(["POST"])
@@ -359,6 +390,21 @@ def chat(request):
     started_at = perf_counter()
     try:
         answer = get_rag_service().ask(data["message"], history=history)
+    except (CorpusConfigError, EmbeddingDimensionMismatchError) as exc:
+        logger.error("Corpus/provider configuration error: %s", exc)
+        record_event(
+            "fallback_triggered",
+            request,
+            conversation=conversation,
+            metadata={"error_type": "corpus_config"},
+        )
+        return Response(
+            {
+                "error": "corpus_config",
+                "message": "The knowledge base needs attention. Please check the documents and provider settings.",
+            },
+            status=503,
+        )
     except Exception as exc:
         logger.exception("Chat request failed: %s", type(exc).__name__)
         try:
@@ -391,6 +437,8 @@ def chat(request):
         )
 
     answer = str(answer).strip()
+    if not answer:
+        answer = "متأسفم، الان نمی‌توانم پاسخ بدهم. لطفاً کمی بعد دوباره تلاش کنید."
     latency_ms = round((perf_counter() - started_at) * 1000)
     assistant_message = Message.objects.create(
         conversation=conversation,
@@ -404,7 +452,7 @@ def chat(request):
         conversation=conversation,
         metadata={"latency_ms": latency_ms},
     )
-    return Response(
+    response = Response(
         {
             "answer": answer,
             "conversation_id": conversation.external_id,
@@ -412,6 +460,8 @@ def chat(request):
             "message_id": assistant_message.id,
         }
     )
+    response["Cache-Control"] = "no-store"
+    return response
 
 
 @api_view(["POST"])
@@ -465,7 +515,7 @@ def feedback(request):
     ).first()
     if conversation is None:
         return Response({"error": "conversation_not_found"}, status=404)
-    if getattr(settings, "WIDGET_PUBLIC_KEY", "") and not _valid_conversation_token(
+    if _widget_key_configured() and not _valid_conversation_token(
         data["conversation_id"],
         request.headers.get("X-Conversation-Token", ""),
     ):
@@ -486,4 +536,6 @@ def feedback(request):
         conversation,
         {"message_id": message.id},
     )
-    return Response({"ok": True})
+    response = Response({"ok": True})
+    response["Cache-Control"] = "no-store"
+    return response

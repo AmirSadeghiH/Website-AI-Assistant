@@ -9,8 +9,21 @@ import numpy as np
 from rag.embeddings import Embedder
 
 
+class EmbeddingDimensionMismatchError(RuntimeError):
+    """The query embedding dimension does not match the corpus index.
+
+    Usually caused by changing EMBEDDING_MODEL (or the panel embedding model)
+    after the knowledge documents were processed.
+    """
+
+
 class Retriever:
-    """FAISS retriever with bounded search and per-process query embedding cache."""
+    """FAISS retriever with bounded search and per-process query embedding cache.
+
+    A fresh installation with no processed documents is a valid state: all
+    three corpus artifacts missing means an empty knowledge base and
+    ``retrieve`` returns ``[]``. Partial artifacts are treated as corruption.
+    """
 
     def __init__(
         self,
@@ -19,11 +32,35 @@ class Retriever:
         embeddings_path: str | None = None,
         device: Optional[str] = None,
         normalize: bool = True,
+        embedder: Optional[Embedder] = None,
     ):
         data_dir = Path(__file__).resolve().parent.parent / "Data"
         chunks_path = chunks_path or str(data_dir / "chunks.json")
         metadata_path = metadata_path or str(data_dir / "metadata.json")
         embeddings_path = embeddings_path or str(data_dir / "embeddings.npy")
+
+        chunk_file = Path(chunks_path)
+        metadata_file = Path(metadata_path)
+        embeddings_file = Path(embeddings_path)
+        existing = [
+            path.exists() for path in (chunk_file, metadata_file, embeddings_file)
+        ]
+
+        if not any(existing):
+            # Empty corpus — a fresh install with no documents processed yet.
+            self.chunks: List[str] = []
+            self.metadata: List[Dict] = []
+            self.embeddings: np.ndarray = np.empty((0, 0), dtype="float32")
+            self.index = None
+            self.embedder = embedder or Embedder(device=device)
+            return
+
+        if not all(existing):
+            raise RuntimeError(
+                "RAG corpus is inconsistent. chunks.json, metadata.json and "
+                "embeddings.npy must all exist together; delete the remaining "
+                "files or re-process the documents."
+            )
 
         try:
             with open(chunks_path, "r", encoding="utf-8") as file:
@@ -31,10 +68,9 @@ class Retriever:
             with open(metadata_path, "r", encoding="utf-8") as file:
                 self.metadata: List[Dict] = json.load(file)
             self.embeddings: np.ndarray = np.load(embeddings_path).astype("float32")
-        except FileNotFoundError as exc:
+        except (FileNotFoundError, ValueError) as exc:
             raise RuntimeError(
-                "RAG corpus is incomplete. chunks.json, metadata.json and "
-                "embeddings.npy must all exist."
+                "RAG corpus is unreadable. Re-process the knowledge documents."
             ) from exc
 
         if (
@@ -51,7 +87,7 @@ class Retriever:
         dimension = self.embeddings.shape[1]
         self.index = faiss.IndexFlatIP(dimension)
         self.index.add(self.embeddings)
-        self.embedder = Embedder(device=device)
+        self.embedder = embedder or Embedder(device=device)
         self._retrieve_cache = {}
 
     @lru_cache(maxsize=512)
@@ -66,8 +102,18 @@ class Retriever:
         rel_score_drop: float = 0.4,
         fallback_top_k: int = 5,
     ) -> List[Dict]:
+        if not self.chunks or self.index is None:
+            return []
+
         query = str(query).strip()[:2000]
         query_emb = self._embed_query_cached(query).copy()
+        if query_emb.shape[0] != self.index.d:
+            raise EmbeddingDimensionMismatchError(
+                f"Query embedding is {query_emb.shape[0]}-dimensional but the "
+                f"corpus index is {self.index.d}-dimensional. Re-process the "
+                "knowledge documents with the current embedding model or "
+                "align the model with the corpus."
+            )
         faiss.normalize_L2(query_emb.reshape(1, -1))
         search_k = min(
             len(self.chunks),

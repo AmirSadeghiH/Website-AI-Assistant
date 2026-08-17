@@ -8,9 +8,9 @@ import tempfile
 import zipfile
 from contextlib import contextmanager
 from pathlib import Path
-from xml.etree import ElementTree
 
 import numpy as np
+from defusedxml import ElementTree as DefusedElementTree
 from filelock import FileLock, Timeout
 import pymupdf
 from django.conf import settings
@@ -26,6 +26,10 @@ SUPPORTED_TYPES = {
     ".docx": "docx",
 }
 MAX_DOCUMENT_BYTES = 25 * 1024 * 1024
+# Zip-bomb / decompression guards for DOCX archives.
+MAX_DOCX_PARTS = 2000
+MAX_DOCX_UNCOMPRESSED_TOTAL = 64 * 1024 * 1024
+MAX_DOCX_SINGLE_PART = 32 * 1024 * 1024
 
 
 @contextmanager
@@ -41,6 +45,23 @@ def corpus_lock(timeout=30):
 
 def detect_file_type(name):
     return SUPPORTED_TYPES.get(Path(name).suffix.lower())
+
+
+def sniff_file_type(path):
+    """Identify the real file type from content, not just the extension."""
+    with path.open("rb") as handle:
+        head = handle.read(64 * 1024)
+    if head.startswith(b"%PDF"):
+        return "pdf"
+    if head.startswith(b"PK\x03\x04"):
+        return "docx"
+    if b"\x00" in head:
+        return None
+    try:
+        head.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        return None
+    return "txt"
 
 
 def sha256_file(path):
@@ -71,8 +92,20 @@ def extract_pdf(path):
 def extract_docx(path):
     namespace = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
     with zipfile.ZipFile(path) as archive:
+        infos = archive.infolist()
+        if len(infos) > MAX_DOCX_PARTS:
+            raise ValueError("فایل DOCX دارای بخش‌های داخلی بیش از حد مجاز است.")
+        total_uncompressed = sum(info.file_size for info in infos)
+        if total_uncompressed > MAX_DOCX_UNCOMPRESSED_TOTAL:
+            raise ValueError("حجم بازشده فایل DOCX بیش از حد مجاز است.")
+        for info in infos:
+            if info.file_size > MAX_DOCX_SINGLE_PART:
+                raise ValueError(
+                    "یکی از بخش‌های داخلی فایل DOCX بیش از حد بزرگ است."
+                )
         xml = archive.read("word/document.xml")
-    root = ElementTree.fromstring(xml)
+    # defusedxml blocks entity-expansion (billion laughs) attacks.
+    root = DefusedElementTree.fromstring(xml)
     paragraphs = []
     for paragraph in root.findall(".//w:p", namespace):
         text = "".join(
@@ -133,6 +166,11 @@ def rebuild_document_embeddings(document):
     file_type = detect_file_type(path.name)
     if not file_type:
         raise ValueError("فرمت فایل پشتیبانی نمی‌شود. فقط PDF، TXT و DOCX مجاز هستند.")
+    sniffed = sniff_file_type(path)
+    if sniffed is None or sniffed != file_type:
+        raise ValueError(
+            "محتوای فایل با پسوند آن هم‌خوانی ندارد و پردازش نمی‌شود."
+        )
     content_hash = sha256_file(path)
     if Document.objects.filter(
         content_hash=content_hash,

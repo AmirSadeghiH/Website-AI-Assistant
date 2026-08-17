@@ -20,21 +20,33 @@ load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-APP_VERSION = "0.9.9"
+APP_VERSION = "1.0.0"
 IS_TESTING = any(arg == "test" or arg.startswith("test") for arg in sys.argv)
 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.1/howto/deployment/checklist/
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = os.getenv(
-    "SECRET_KEY",
-    "django-insecure-vp_haoh$2=d*ohzslo3-!byulo3ak0+cd12*@=a4=zp+@_hcn1",
-)
-
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DEBUG", "True").lower() in ("true", "1", "yes")
+DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
+
+# SECURITY WARNING: keep the secret key used in production secret!
+# DEBUG and IS_TESTING default to a throwaway key; production refuses to
+# start without an explicit SECRET_KEY in the environment.
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+if not SECRET_KEY:
+    if DEBUG or IS_TESTING:
+        SECRET_KEY = (
+            "django-insecure-dev-only-vp_haoh$2=d*ohzslo3-!byulo3ak0+cd12*@=a4=zp+@_hcn1"
+        )
+    else:
+        from django.core.exceptions import ImproperlyConfigured
+
+        raise ImproperlyConfigured(
+            "SECRET_KEY is required in production. Generate one with "
+            "`python -c \"import secrets; print(secrets.token_urlsafe(64))\"` "
+            "and set it in the environment."
+        )
 
 ALLOWED_HOSTS = [
     h.strip()
@@ -60,6 +72,9 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Must run BEFORE corsheaders: corsheaders short-circuits CORS preflights
+    # without calling get_response, so post-processing would never see them.
+    'chat.middleware.PanelOriginCorsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
     'chat.middleware.ApiRequestSizeLimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -77,7 +92,7 @@ DEFAULT_CHARSET = 'utf-8'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'templates'],
+        'DIRS': [],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -157,6 +172,9 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
+# Stream large document uploads straight to disk instead of holding them in
+# memory; the admin form enforces the 25 MB document limit.
+FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 
 CACHES = {
     "default": {
@@ -200,7 +218,14 @@ CORS_ALLOW_ALL_ORIGINS = os.getenv(
     'CORS_ALLOW_ALL_ORIGINS',
     'True' if DEBUG else 'False',
 ).lower() in ('true', '1', 'yes')
-CORS_ALLOW_HEADERS = ['content-type', 'authorization', 'x-csrftoken']
+# The widget sends these headers; they must survive the CORS preflight.
+CORS_ALLOW_HEADERS = [
+    'content-type',
+    'authorization',
+    'x-csrftoken',
+    'x-widget-key',
+    'x-conversation-token',
+]
 CORS_URLS_REGEX = r'^/api/.*$'
 
 WIDGET_PUBLIC_KEY = os.getenv("WIDGET_PUBLIC_KEY", "").strip()
@@ -223,6 +248,12 @@ RAG_MAX_CONCURRENT = int(os.getenv("RAG_MAX_CONCURRENT", "8"))
 RAG_RESPONSE_CACHE_SECONDS = int(
     os.getenv("RAG_RESPONSE_CACHE_SECONDS", "60")
 )
+# Set to True only when the reverse proxy is configured to overwrite
+# X-Forwarded-For; enables per-visitor rate limiting behind nginx.
+TRUST_X_FORWARDED_FOR = os.getenv(
+    "TRUST_X_FORWARDED_FOR",
+    "False",
+).lower() in ("true", "1", "yes")
 
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": (
@@ -248,6 +279,7 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG
 SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG
 SECURE_REFERRER_POLICY = "same-origin"
+SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() in (
     "true",
     "1",
@@ -260,7 +292,22 @@ SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
 # https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
 
 MAILERS = {
-    'default': {
-        'BACKEND': 'django.core.mail.backends.console.EmailBackend',
+    "default": {
+        # Console in development; SMTP in production (overridable via env).
+        "BACKEND": os.getenv(
+            "MAIL_BACKEND",
+            "django.core.mail.backends.console.EmailBackend"
+            if DEBUG
+            else "django.core.mail.backends.smtp.EmailBackend",
+        ),
+        "OPTIONS": {
+            "host": os.getenv("MAIL_HOST", "localhost"),
+            "port": int(os.getenv("MAIL_PORT", "25")),
+            "username": os.getenv("MAIL_USER", ""),
+            "password": os.getenv("MAIL_PASSWORD", ""),
+            "use_tls": os.getenv("MAIL_USE_TLS", "False").lower()
+            in ("true", "1", "yes"),
+            "timeout": int(os.getenv("MAIL_TIMEOUT", "10")),
+        },
     },
 }

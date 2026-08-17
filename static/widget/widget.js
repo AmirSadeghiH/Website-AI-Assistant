@@ -388,7 +388,9 @@
     }
 
     async loadHistory() {
-      if (!this.options.historyEndpoint) return;
+      if (this.options.showHistory === false || !this.options.historyEndpoint) {
+        return;
+      }
       try {
         var response = await fetch(
           this.options.historyEndpoint +

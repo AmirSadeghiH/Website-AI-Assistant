@@ -1,13 +1,28 @@
 {% extends "admin/base_site.html" %}
 {% load i18n static %}
 
+{% block extrastyle %}
+  {{ block.super }}
+  <link rel="stylesheet" href="{% static 'admin/css/support_admin.css' %}">
+{% endblock %}
+
+{% block branding %}
+  <a href="{% url 'admin:index' %}" class="support-brand" aria-label="AI Support home">
+    <span class="support-brand-mark">✦</span>
+    <span>
+      <strong>AI Support</strong>
+      <small>Control Room</small>
+    </span>
+  </a>
+{% endblock %}
+
 {% block content %}
   <div class="support-dashboard" dir="rtl">
     <section class="support-hero">
       <div>
-        <span class="support-eyebrow">AI SUPPORT / BETA CONTROL ROOM</span>
+        <span class="support-eyebrow">AI SUPPORT / CONTROL ROOM</span>
         <h1>مرکز فرماندهی دستیار هوشمند</h1>
-        <p>وضعیت مکالمات، کیفیت پاسخ‌ها و تنظیمات ویجت را از یکجا مدیریت کنید.</p>
+        <p>وضعیت مکالمات، کیفیت پاسخ‌ها، اسناد دانش و تنظیمات ویجت را از یکجا مدیریت کنید.</p>
       </div>
       <a class="support-primary-action" href="{% url 'admin:chat_widgetconfig_changelist' %}">
         تنظیمات ویجت
@@ -24,7 +39,7 @@
       <article class="support-stat-card accent-cyan">
         <span class="support-stat-label">پیام‌های امروز</span>
         <strong>{{ dashboard_stats.messages_today }}</strong>
-        <span class="support-stat-meta">رفتار روز جاری</span>
+        <span class="support-stat-meta">فعالیت روز جاری</span>
       </article>
       <article class="support-stat-card accent-emerald">
         <span class="support-stat-label">کل پیام‌ها</span>
@@ -79,9 +94,19 @@
             <span><strong>تنظیمات ویجت</strong><small>ظاهر، متن و رفتار</small></span>
             <b>←</b>
           </a>
+          <a href="{% url 'admin:chat_providersettings_changelist' %}">
+            <span class="support-quick-icon">⚙</span>
+            <span><strong>کلیدها و مدل‌های AI</strong><small>LLM، embedding و ظرفیت</small></span>
+            <b>←</b>
+          </a>
+          <a href="{% url 'admin:chat_document_changelist' %}">
+            <span class="support-quick-icon">⌁</span>
+            <span><strong>اسناد دانش</strong><small>آپلود و ساخت embedding</small></span>
+            <b>←</b>
+          </a>
           <a href="{% url 'admin:chat_message_changelist' %}">
             <span class="support-quick-icon">◌</span>
-            <span><strong>بررسی پیام‌ها</strong><small>feedback و زمان پاسخ</small></span>
+            <span><strong>بررسی پیام‌ها</strong><small>بازخورد و زمان پاسخ</small></span>
             <b>←</b>
           </a>
           <a href="{% url 'admin:chat_analyticsevent_changelist' %}">

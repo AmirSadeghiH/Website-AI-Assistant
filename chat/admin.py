@@ -3,35 +3,51 @@ from django.contrib.admin import AdminSite
 from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
+from django.core.cache import cache
 from django.db.models import Count, Q
 from django import forms
 from django.utils.html import format_html
 from django.utils import timezone
 
-from .models import AnalyticsEvent, Conversation, Document, Message, WidgetConfig
+from .models import (
+    AnalyticsEvent,
+    Conversation,
+    Document,
+    Message,
+    ProviderSettings,
+    WidgetConfig,
+)
+
+_DASHBOARD_CACHE_KEY = "ai-support:dashboard-stats"
 
 
 class SupportAdminSite(AdminSite):
     site_header = "AI Support Control Room"
     site_title = "AI Support Admin"
     index_title = "مرکز مدیریت و پایش دستیار هوشمند"
-    index_template = "admin/index.html"
+    index_template = "admin/chat_dashboard.html"
 
     def each_context(self, request):
         context = super().each_context(request)
-        today = timezone.localdate()
-        context["dashboard_stats"] = {
-            "conversations": Conversation.objects.count(),
-            "messages": Message.objects.count(),
-            "messages_today": Message.objects.filter(
-                created_at__date=today,
-            ).count(),
-            "helpful": Message.objects.filter(feedback="helpful").count(),
-            "not_helpful": Message.objects.filter(feedback="not_helpful").count(),
-            "fallbacks": AnalyticsEvent.objects.filter(
-                event_type="fallback_triggered",
-            ).count(),
-        }
+        stats = cache.get(_DASHBOARD_CACHE_KEY)
+        if stats is None:
+            today = timezone.localdate()
+            stats = {
+                "conversations": Conversation.objects.count(),
+                "messages": Message.objects.count(),
+                "messages_today": Message.objects.filter(
+                    created_at__date=today,
+                ).count(),
+                "helpful": Message.objects.filter(feedback="helpful").count(),
+                "not_helpful": Message.objects.filter(
+                    feedback="not_helpful"
+                ).count(),
+                "fallbacks": AnalyticsEvent.objects.filter(
+                    event_type="fallback_triggered",
+                ).count(),
+            }
+            cache.set(_DASHBOARD_CACHE_KEY, stats, timeout=30)
+        context["dashboard_stats"] = stats
         context["dashboard_recent"] = Conversation.objects.prefetch_related(
             "messages",
         )[:6]
@@ -99,6 +115,10 @@ class WidgetConfigAdmin(admin.ModelAdmin):
                     "user_prompt",
                 ),
                 "classes": ("collapse",),
+                "description": (
+                    "کلیدهای API، مدل embedding و ظرفیت در بخش جداگانه‌ی "
+                    "«AI provider settings» تنظیم می‌شوند."
+                ),
             },
         ),
     )
@@ -180,6 +200,174 @@ def process_documents(modeladmin, request, queryset):
         request,
         f"{count} سند برای پردازش در پس‌زمینه صف شد.",
     )
+
+
+class ProviderSettingsForm(forms.ModelForm):
+    """Admin form that never round-trips stored API keys to the browser.
+
+    Key fields render as password inputs; leaving them empty keeps the
+    current stored value, so the secret is only written when a new value is
+    typed.
+    """
+
+    llm_api_key = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="کلید API مدل پاسخ‌دهنده. برای حفظ مقدار فعلی خالی بگذارید.",
+    )
+    embedding_api_key = forms.CharField(
+        required=False,
+        widget=forms.PasswordInput(render_value=False),
+        help_text="کلید API سرویس embedding. برای حفظ مقدار فعلی خالی بگذارید.",
+    )
+
+    class Meta:
+        model = ProviderSettings
+        fields = (
+            "llm_api_key",
+            "llm_base_url",
+            "llm_model",
+            "llm_max_tokens",
+            "llm_timeout_seconds",
+            "llm_max_retries",
+            "embedding_api_key",
+            "embedding_base_url",
+            "embedding_model",
+            "embedding_timeout_seconds",
+            "embedding_max_retries",
+            "rag_max_concurrent",
+            "response_cache_seconds",
+            "widget_public_key",
+            "widget_allowed_origins",
+        )
+        widgets = {
+            "widget_allowed_origins": forms.Textarea(
+                attrs={"rows": 5, "dir": "ltr"},
+            ),
+        }
+        help_texts = {
+            "widget_public_key": (
+                "کلید عمومی نصب (در تگ ویجت مشتری قرار می‌گیرد). "
+                "خالی = استفاده از متغیر محیطی WIDGET_PUBLIC_KEY. "
+                "این مقدار secret نیست."
+            ),
+            "widget_allowed_origins": (
+                "هر دامنه‌ی مجاز در یک خط؛ نمونه: https://example.com — "
+                "این دامنه‌ها هم روی دسترسی API و هم روی CORS اعمال می‌شوند."
+            ),
+        }
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        for field in ("llm_api_key", "embedding_api_key"):
+            if not self.cleaned_data.get(field):
+                current = (
+                    getattr(self.instance, field)
+                    if self.instance and self.instance.pk
+                    else ""
+                )
+                setattr(instance, field, current)
+        if commit:
+            instance.save()
+        return instance
+
+
+class ProviderSettingsAdmin(admin.ModelAdmin):
+    form = ProviderSettingsForm
+    fieldsets = (
+        (
+            "مدل پاسخ‌دهنده (LLM)",
+            {
+                "fields": (
+                    "llm_api_key",
+                    "llm_base_url",
+                    "llm_model",
+                    "llm_max_tokens",
+                    "llm_timeout_seconds",
+                    "llm_max_retries",
+                ),
+                "description": (
+                    "اگر خالی بگذارید، مقدار معادل از متغیر محیطی خوانده می‌شود. "
+                    "کلیدها به‌صورت رمزنگاری‌شده در پایگاه داده ذخیره می‌شوند."
+                ),
+            },
+        ),
+        (
+            "مدل Embedding",
+            {
+                "fields": (
+                    "embedding_api_key",
+                    "embedding_base_url",
+                    "embedding_model",
+                    "embedding_timeout_seconds",
+                    "embedding_max_retries",
+                ),
+                "description": (
+                    "هنگام تغییر مدل embedding، اسناد قبلی باید دوباره پردازش شوند "
+                    "(دکمه ساخت embedding روی هر سند)."
+                ),
+            },
+        ),
+        (
+            "ظرفیت و کش",
+            {
+                "fields": (
+                    "rag_max_concurrent",
+                    "response_cache_seconds",
+                ),
+                "classes": ("collapse",),
+            },
+        ),
+        (
+            "نصب ویجت و کنترل دسترسی",
+            {
+                "fields": (
+                    "widget_public_key",
+                    "widget_allowed_origins",
+                ),
+                "description": (
+                    "برای افزودن مشتری جدید کافی است این‌جا کلید و دامنه‌ی سایتش "
+                    "را وارد کنید؛ تا چند ثانیه بعد روی API و CORS اعمال می‌شود "
+                    "و تگ ویجت آماده‌ی تحویل است."
+                ),
+            },
+        ),
+    )
+    readonly_fields = ("updated_at",)
+    list_display = (
+        "llm_model_summary",
+        "embedding_model_summary",
+        "llm_key_set",
+        "embedding_key_set",
+        "widget_key_set",
+        "updated_at",
+    )
+
+    @admin.display(description="مدل LLM")
+    def llm_model_summary(self, obj):
+        return obj.llm_model or "— (از محیط)"
+
+    @admin.display(description="مدل Embedding")
+    def embedding_model_summary(self, obj):
+        return obj.embedding_model or "— (از محیط)"
+
+    @admin.display(description="کلید LLM", boolean=True)
+    def llm_key_set(self, obj):
+        return bool(obj.llm_api_key)
+
+    @admin.display(description="کلید Embedding", boolean=True)
+    def embedding_key_set(self, obj):
+        return bool(obj.embedding_api_key)
+
+    @admin.display(description="کلید نصب ویجت", boolean=True)
+    def widget_key_set(self, obj):
+        return bool(obj.widget_public_key)
+
+    def has_add_permission(self, request):
+        return not ProviderSettings.objects.exists()
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 class DocumentAdminForm(forms.ModelForm):
@@ -313,6 +501,7 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
 
 
 admin_site.register(WidgetConfig, WidgetConfigAdmin)
+admin_site.register(ProviderSettings, ProviderSettingsAdmin)
 admin_site.register(Conversation, ConversationAdmin)
 admin_site.register(Message, MessageAdmin)
 admin_site.register(AnalyticsEvent, AnalyticsEventAdmin)

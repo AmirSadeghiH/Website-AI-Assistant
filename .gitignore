@@ -32,9 +32,14 @@ Thumbs.db
 .coverage
 htmlcov/
 
-# RAG generated files
+# RAG generated files (rebuilt from the PDFs in Data/ on first processing)
 *.faiss
 *.npy
+Data/chunks.json
+Data/metadata.json
+Data/*.lock
+embedding_jobs.log
+error_tracebacks.log
 
 # Temporary files
 *.tmp
