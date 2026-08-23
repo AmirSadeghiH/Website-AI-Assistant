@@ -4,16 +4,19 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.admin import UserAdmin
 from django.contrib.auth.models import Group
 from django.core.cache import cache
-from django.db.models import Count, Q
+from django.db.models import Count
+from django.db.models.functions import TruncDate, TruncWeek, TruncMonth
 from django import forms
+from django.urls import path
 from django.utils.html import format_html
 from django.utils import timezone
+from django.http import HttpResponseRedirect
+from django.http import JsonResponse
 
 from .models import (
+    AdminNotification,
     AnalyticsEvent,
-    Conversation,
     Document,
-    Message,
     ProviderSettings,
     WidgetConfig,
 )
@@ -27,30 +30,185 @@ class SupportAdminSite(AdminSite):
     index_title = "مرکز مدیریت و پایش دستیار هوشمند"
     index_template = "admin/chat_dashboard.html"
 
+    def get_urls(self):
+        custom_urls = [
+            path(
+                "notifications-mark-read/",
+                self.admin_view(self._mark_notifications_read),
+                name="notifications-read",
+            ),
+            path(
+                "analytics-data/",
+                self.admin_view(self._analytics_data_api),
+                name="analytics-data",
+            ),
+            path(
+                "faq-leaderboard/",
+                self.admin_view(self._faq_leaderboard_api),
+                name="faq-leaderboard",
+            ),
+        ]
+        return custom_urls + super().get_urls()
+
+    def _mark_notifications_read(self, request):
+        AdminNotification.objects.filter(is_read=False).update(is_read=True)
+        return HttpResponseRedirect(request.META.get("HTTP_REFERER", "/admin/"))
+
+    def _analytics_data_api(self, request):
+        """Return usage analytics aggregated by day/week/month for Chart.js."""
+        if not request.user or not request.user.is_staff:
+            return JsonResponse({"error": "Forbidden"}, status=403)
+
+        period = request.GET.get("period", "day")
+        days = int(request.GET.get("days", "30"))
+        cutoff = timezone.now() - timezone.timedelta(days=days)
+
+        cache_key = f"analytics:{period}:{days}"
+        data = cache.get(cache_key)
+        if data is None:
+            qs = AnalyticsEvent.objects.filter(created_at__gte=cutoff)
+
+            if period == "month":
+                trunc = TruncMonth("created_at")
+            elif period == "week":
+                trunc = TruncWeek("created_at")
+            else:
+                trunc = TruncDate("created_at")
+
+            # Messages per period
+            messages = (
+                qs.filter(event_type="assistant_answered")
+                .annotate(date=trunc)
+                .values("date")
+                .annotate(count=Count("id"))
+                .order_by("date")
+            )
+
+            # Errors per period
+            errors = (
+                qs.filter(event_type="error_occurred")
+                .annotate(date=trunc)
+                .values("date")
+                .annotate(count=Count("id"))
+                .order_by("date")
+            )
+
+            # Widget loads per period
+            loads = (
+                qs.filter(event_type="widget_loaded")
+                .annotate(date=trunc)
+                .values("date")
+                .annotate(count=Count("id"))
+                .order_by("date")
+            )
+
+            # Helpful / not helpful
+            helpful = qs.filter(event_type="answer_helpful").count()
+            not_helpful = qs.filter(event_type="answer_not_helpful").count()
+
+            # Average latency — compute in Python to avoid SQLite JSON field issues
+            latency_values = (
+                qs.filter(event_type="assistant_answered")
+                .exclude(metadata__latency_ms=None)
+                .values_list("metadata", flat=True)[:500]
+            )
+            latencies = [
+                m.get("latency_ms", 0)
+                for m in latency_values
+                if isinstance(m, dict) and m.get("latency_ms")
+            ]
+            avg_latency = round(sum(latencies) / len(latencies)) if latencies else 0
+
+            data = {
+                "messages": [{"date": r["date"].isoformat(), "count": r["count"]} for r in messages],
+                "errors": [{"date": r["date"].isoformat(), "count": r["count"]} for r in errors],
+                "loads": [{"date": r["date"].isoformat(), "count": r["count"]} for r in loads],
+                "helpful": helpful,
+                "not_helpful": not_helpful,
+                "avg_latency_ms": avg_latency,
+                "total_messages": qs.filter(event_type="assistant_answered").count(),
+                "total_errors": qs.filter(event_type="error_occurred").count(),
+            }
+            cache.set(cache_key, data, timeout=60)
+
+        return JsonResponse(data)
+
+    def _faq_leaderboard_api(self, request):
+        """Return the most frequently asked questions."""
+        if not request.user or not request.user.is_staff:
+            return JsonResponse({"error": "Forbidden"}, status=403)
+
+        days = int(request.GET.get("days", "30"))
+        limit = int(request.GET.get("limit", "15"))
+        cutoff = timezone.now() - timezone.timedelta(days=days)
+
+        cache_key = f"faq-leaderboard:{days}:{limit}"
+        data = cache.get(cache_key)
+        if data is None:
+            # Extract questions from user_message events and answer_helpful metadata
+            questions = []
+
+            # From answer_helpful/answer_not_helpful events (has question in metadata)
+            feedback_events = (
+                AnalyticsEvent.objects.filter(
+                    event_type__in=("answer_helpful", "answer_not_helpful"),
+                    created_at__gte=cutoff,
+                )
+                .exclude(metadata__question="")
+                .values_list("metadata", flat=True)
+            )
+            question_counts = {}
+            for meta in feedback_events:
+                q = (meta.get("question", "") or "").strip()[:200]
+                if q:
+                    question_counts[q] = question_counts.get(q, 0) + 1
+
+            # Sort by frequency
+            sorted_questions = sorted(
+                question_counts.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            )[:limit]
+
+            data = [
+                {"question": q, "count": c}
+                for q, c in sorted_questions
+            ]
+            cache.set(cache_key, data, timeout=120)
+
+        return JsonResponse({"questions": data})
+
     def each_context(self, request):
         context = super().each_context(request)
         stats = cache.get(_DASHBOARD_CACHE_KEY)
         if stats is None:
             today = timezone.localdate()
+            one_minute_ago = timezone.now() - timezone.timedelta(minutes=1)
+            error_count = AnalyticsEvent.objects.filter(
+                event_type="error_occurred",
+                created_at__gte=one_minute_ago,
+            ).count()
+            message_count = AnalyticsEvent.objects.filter(
+                event_type="assistant_answered",
+                created_at__gte=one_minute_ago,
+            ).count()
             stats = {
-                "conversations": Conversation.objects.count(),
-                "messages": Message.objects.count(),
-                "messages_today": Message.objects.filter(
+                "documents": Document.objects.count(),
+                "documents_ready": Document.objects.filter(status="ready").count(),
+                "events_today": AnalyticsEvent.objects.filter(
                     created_at__date=today,
                 ).count(),
-                "helpful": Message.objects.filter(feedback="helpful").count(),
-                "not_helpful": Message.objects.filter(
-                    feedback="not_helpful"
-                ).count(),
-                "fallbacks": AnalyticsEvent.objects.filter(
-                    event_type="fallback_triggered",
+                "errors_this_minute": error_count,
+                "messages_this_minute": message_count,
+                "unread_notifications": AdminNotification.objects.filter(
+                    is_read=False,
                 ).count(),
             }
-            cache.set(_DASHBOARD_CACHE_KEY, stats, timeout=30)
+            cache.set(_DASHBOARD_CACHE_KEY, stats, timeout=15)
         context["dashboard_stats"] = stats
-        context["dashboard_recent"] = Conversation.objects.prefetch_related(
-            "messages",
-        )[:6]
+        context["dashboard_notifications"] = AdminNotification.objects.filter(
+            is_read=False,
+        )[:10]
         return context
 
 
@@ -80,18 +238,48 @@ class WidgetConfigAdmin(admin.ModelAdmin):
                     "greeting",
                     "primary_color",
                     "secondary_color",
+                    "accent_color",
                     "header_badge",
                     "bot_avatar_text",
                     "input_placeholder",
                     "theme_mode",
+                    "dark_mode",
+                    "bubble_style",
                     "panel_width",
                     "panel_height",
                     "border_radius",
                     "mobile_fullscreen",
                     "logo_url",
                     "font_family",
-                    "position",
+                    "font_size",
                     "suggestions",
+                ),
+            },
+        ),
+        (
+            "موقعیت ویجت",
+            {
+                "fields": (
+                    "position",
+                    "position_vertical_offset",
+                    "position_horizontal_offset",
+                ),
+                "description": (
+                    "موقعیت ویجت روی صفحه. فاصله‌ها بر حسب پیکسل از لبه صفحه."
+                ),
+            },
+        ),
+        (
+            "آیکون ویجت",
+            {
+                "fields": (
+                    "icon_type",
+                    "default_icon_choice",
+                    "custom_icon_file",
+                ),
+                "description": (
+                    "آیکون دکمه شناور (FAB). «پیش‌فرض» شامل ۶ آیکون آماده است. "
+                    "«سفارشی» امکان آپلود فایل PNG/SVG را فراهم می‌کند."
                 ),
             },
         ),
@@ -99,9 +287,12 @@ class WidgetConfigAdmin(admin.ModelAdmin):
             "رفتار و تجربه کاربر",
             {
                 "fields": (
-                    "show_history",
-                    "allow_feedback",
+                    "show_feedback",
                     "show_powered_by",
+                    "show_timestamp",
+                    "show_avatar",
+                    "enable_sounds",
+                    "enable_animations",
                 ),
             },
         ),
@@ -136,80 +327,7 @@ class WidgetConfigAdmin(admin.ModelAdmin):
         return not WidgetConfig.objects.exists()
 
 
-class MessageInline(admin.TabularInline):
-    model = Message
-    extra = 0
-    can_delete = False
-    readonly_fields = ("role", "content", "feedback", "latency_ms", "created_at")
-    fields = readonly_fields
-
-
-class ConversationAdmin(admin.ModelAdmin):
-    list_display = (
-        "external_id",
-        "message_count",
-        "feedback_count",
-        "is_archived",
-        "last_activity_at",
-    )
-    list_filter = ("is_archived", "started_at")
-    search_fields = ("external_id", "page_url", "referrer")
-    readonly_fields = ("started_at", "last_activity_at", "user_agent")
-    inlines = (MessageInline,)
-    date_hierarchy = "started_at"
-
-    def get_queryset(self, request):
-        return super().get_queryset(request).annotate(
-            _message_count=Count("messages", distinct=True),
-            _feedback_count=Count(
-                "messages",
-                filter=~Q(messages__feedback=""),
-                distinct=True,
-            ),
-        )
-
-    @admin.display(description="پیام‌ها", ordering="_message_count")
-    def message_count(self, obj):
-        return obj._message_count
-
-    @admin.display(description="بازخورد", ordering="_feedback_count")
-    def feedback_count(self, obj):
-        return obj._feedback_count
-
-
-class MessageAdmin(admin.ModelAdmin):
-    list_display = (
-        "conversation",
-        "role",
-        "feedback",
-        "latency_ms",
-        "created_at",
-    )
-    list_filter = ("role", "feedback", "created_at")
-    search_fields = ("content", "conversation__external_id")
-    readonly_fields = ("created_at",)
-    date_hierarchy = "created_at"
-
-
-@admin.action(description="شروع پردازش و ساخت embedding برای اسناد انتخاب‌شده")
-def process_documents(modeladmin, request, queryset):
-    from .document_pipeline import enqueue_documents
-
-    count = enqueue_documents(queryset.values_list("pk", flat=True))
-    modeladmin.message_user(
-        request,
-        f"{count} سند برای پردازش در پس‌زمینه صف شد.",
-    )
-
-
 class ProviderSettingsForm(forms.ModelForm):
-    """Admin form that never round-trips stored API keys to the browser.
-
-    Key fields render as password inputs; leaving them empty keeps the
-    current stored value, so the secret is only written when a new value is
-    typed.
-    """
-
     llm_api_key = forms.CharField(
         required=False,
         widget=forms.PasswordInput(render_value=False),
@@ -248,8 +366,7 @@ class ProviderSettingsForm(forms.ModelForm):
         help_texts = {
             "widget_public_key": (
                 "کلید عمومی نصب (در تگ ویجت مشتری قرار می‌گیرد). "
-                "خالی = استفاده از متغیر محیطی WIDGET_PUBLIC_KEY. "
-                "این مقدار secret نیست."
+                "خالی = استفاده از متغیر محیطی WIDGET_PUBLIC_KEY."
             ),
             "widget_allowed_origins": (
                 "هر دامنه‌ی مجاز در یک خط؛ نمونه: https://example.com — "
@@ -303,8 +420,7 @@ class ProviderSettingsAdmin(admin.ModelAdmin):
                     "embedding_max_retries",
                 ),
                 "description": (
-                    "هنگام تغییر مدل embedding، اسناد قبلی باید دوباره پردازش شوند "
-                    "(دکمه ساخت embedding روی هر سند)."
+                    "هنگام تغییر مدل embedding، اسناد قبلی باید دوباره پردازش شوند."
                 ),
             },
         ),
@@ -327,8 +443,7 @@ class ProviderSettingsAdmin(admin.ModelAdmin):
                 ),
                 "description": (
                     "برای افزودن مشتری جدید کافی است این‌جا کلید و دامنه‌ی سایتش "
-                    "را وارد کنید؛ تا چند ثانیه بعد روی API و CORS اعمال می‌شود "
-                    "و تگ ویجت آماده‌ی تحویل است."
+                    "را وارد کنید؛ تا چند ثانیه بعد روی API و CORS اعمال می‌شود."
                 ),
             },
         ),
@@ -392,7 +507,7 @@ class DocumentAdminForm(forms.ModelForm):
         return uploaded
 
 
-@admin.register(Document, site=admin_site)
+
 class DocumentAdmin(admin.ModelAdmin):
     form = DocumentAdminForm
     list_display = (
@@ -417,7 +532,7 @@ class DocumentAdmin(admin.ModelAdmin):
         "created_at",
         "updated_at",
     )
-    actions = (process_documents,)
+    actions = ("process_documents_action",)
     date_hierarchy = "created_at"
 
     fieldsets = (
@@ -450,6 +565,16 @@ class DocumentAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.action(description="شروع پردازش و ساخت embedding برای اسناد انتخاب‌شده")
+    def process_documents_action(self, request, queryset):
+        from .document_pipeline import enqueue_documents
+
+        count = enqueue_documents(queryset.values_list("pk", flat=True))
+        self.message_user(
+            request,
+            f"{count} سند برای پردازش در پس‌زمینه صف شد.",
+        )
 
     def save_model(self, request, obj, form, change):
         from .document_pipeline import detect_file_type
@@ -492,18 +617,32 @@ class DocumentAdmin(admin.ModelAdmin):
         )
 
 
+class AdminNotificationAdmin(admin.ModelAdmin):
+    list_display = ("title", "severity", "is_read", "created_at")
+    list_filter = ("severity", "is_read", "created_at")
+    readonly_fields = ("title", "message", "severity", "created_at")
+    actions = ("mark_read",)
+
+    @admin.action(description="علامت‌گذاری به‌عنوان خوانده‌شده")
+    def mark_read(self, request, queryset):
+        queryset.update(is_read=True)
+
+    def has_add_permission(self, request):
+        return False
+
+
 class AnalyticsEventAdmin(admin.ModelAdmin):
-    list_display = ("event_type", "conversation", "path", "created_at")
+    list_display = ("event_type", "path", "created_at")
     list_filter = ("event_type", "created_at")
-    search_fields = ("path", "conversation__external_id")
+    search_fields = ("path",)
     readonly_fields = ("created_at",)
     date_hierarchy = "created_at"
 
 
 admin_site.register(WidgetConfig, WidgetConfigAdmin)
 admin_site.register(ProviderSettings, ProviderSettingsAdmin)
-admin_site.register(Conversation, ConversationAdmin)
-admin_site.register(Message, MessageAdmin)
+admin_site.register(Document, DocumentAdmin)
 admin_site.register(AnalyticsEvent, AnalyticsEventAdmin)
+admin_site.register(AdminNotification, AdminNotificationAdmin)
 admin_site.register(get_user_model(), UserAdmin)
 admin_site.register(Group)

@@ -31,8 +31,6 @@ IS_TESTING = any(arg == "test" or arg.startswith("test") for arg in sys.argv)
 DEBUG = os.getenv("DEBUG", "False").lower() in ("true", "1", "yes")
 
 # SECURITY WARNING: keep the secret key used in production secret!
-# DEBUG and IS_TESTING default to a throwaway key; production refuses to
-# start without an explicit SECRET_KEY in the environment.
 SECRET_KEY = os.getenv("SECRET_KEY", "")
 if not SECRET_KEY:
     if DEBUG or IS_TESTING:
@@ -76,6 +74,8 @@ MIDDLEWARE = [
     # without calling get_response, so post-processing would never see them.
     'chat.middleware.PanelOriginCorsMiddleware',
     'corsheaders.middleware.CorsMiddleware',
+    'chat.middleware.SecurityHeadersMiddleware',
+    'chat.middleware.AdminLoginRateLimitMiddleware',
     'chat.middleware.ApiRequestSizeLimitMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -83,6 +83,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'chat.middleware.MediaDocumentProtectionMiddleware',
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -133,68 +134,65 @@ else:
 
 
 # Password validation
-# https://docs.djangoproject.com/en/6.1/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
+    {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator'},
+    {'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator'},
 ]
 
 
 # Internationalization
-# https://docs.djangoproject.com/en/6.1/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
 
 
 # Static files (CSS, JavaScript, Images)
-# https://docs.djangoproject.com/en/6.1/howto/static-files/
-
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
-# Stream large document uploads straight to disk instead of holding them in
-# memory; the admin form enforces the 25 MB document limit.
 FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
 
-CACHES = {
-    "default": {
-        "BACKEND": os.getenv(
-            "CACHE_BACKEND",
-            "django.core.cache.backends.locmem.LocMemCache",
-        ),
-        "LOCATION": os.getenv("CACHE_LOCATION", "ai-support-cache"),
-        "TIMEOUT": int(os.getenv("CACHE_TIMEOUT", "300")),
-        "OPTIONS": {
-            "ignore_exc": True,
-        },
+
+# ─── Cache — Redis in production, LocMem in dev ──────────────────────────
+# Redis is required for cross-worker rate limiting and answer caching.
+# In development (or when REDIS_URL is not set), LocMem works fine.
+REDIS_URL = os.getenv("REDIS_URL", "")
+if REDIS_URL:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.redis.RedisCache",
+            "LOCATION": REDIS_URL,
+            "KEY_PREFIX": "aisup",
+            "TIMEOUT": int(os.getenv("CACHE_TIMEOUT", "300")),
+            "OPTIONS": {
+                "ignore_exc": True,
+            },
+        }
     }
-}
+else:
+    CACHES = {
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": os.getenv("CACHE_LOCATION", "ai-support-cache"),
+            "TIMEOUT": int(os.getenv("CACHE_TIMEOUT", "300")),
+            "OPTIONS": {
+                "ignore_exc": True,
+            },
+        }
+    }
+
 
 JAZZMIN_SETTINGS = {
     'site_title': 'AI Support Admin',
     'site_header': 'AI Support',
     'site_brand': 'AI Support',
-    'welcome_sign': 'مرکز مدیریت دستیار هوشمند',
+    'welcome_sign': 'مرکز مدیریت و پایش دستیار هوشمند',
     'copyright': 'AI Support',
     'show_ui_builder': False,
     'navigation_expanded': True,
@@ -202,9 +200,8 @@ JAZZMIN_SETTINGS = {
     'icons': {
         'chat.widgetconfig': 'fas fa-sliders-h',
         'chat.document': 'fas fa-file-lines',
-        'chat.conversation': 'fas fa-comments',
-        'chat.message': 'fas fa-message',
         'chat.analyticsevent': 'fas fa-chart-line',
+        'chat.adminnotification': 'fas fa-bell',
     },
 }
 
@@ -218,13 +215,11 @@ CORS_ALLOW_ALL_ORIGINS = os.getenv(
     'CORS_ALLOW_ALL_ORIGINS',
     'True' if DEBUG else 'False',
 ).lower() in ('true', '1', 'yes')
-# The widget sends these headers; they must survive the CORS preflight.
 CORS_ALLOW_HEADERS = [
     'content-type',
     'authorization',
     'x-csrftoken',
     'x-widget-key',
-    'x-conversation-token',
 ]
 CORS_URLS_REGEX = r'^/api/.*$'
 
@@ -243,16 +238,14 @@ WIDGET_ALLOWED_ORIGINS = tuple(
 )
 WIDGET_RATE = os.getenv("WIDGET_RATE", "30/minute")
 WIDGET_EVENTS_RATE = os.getenv("WIDGET_EVENTS_RATE", "120/minute")
+WIDGET_KEY_RATE = os.getenv("WIDGET_KEY_RATE", "1000/minute")
 WIDGET_FEEDBACK_RATE = os.getenv("WIDGET_FEEDBACK_RATE", "60/minute")
 RAG_MAX_CONCURRENT = int(os.getenv("RAG_MAX_CONCURRENT", "8"))
 RAG_RESPONSE_CACHE_SECONDS = int(
     os.getenv("RAG_RESPONSE_CACHE_SECONDS", "60")
 )
-# Set to True only when the reverse proxy is configured to overwrite
-# X-Forwarded-For; enables per-visitor rate limiting behind nginx.
 TRUST_X_FORWARDED_FOR = os.getenv(
-    "TRUST_X_FORWARDED_FOR",
-    "False",
+    "TRUST_X_FORWARDED_FOR", "False",
 ).lower() in ("true", "1", "yes")
 
 REST_FRAMEWORK = {
@@ -265,6 +258,7 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "widget": WIDGET_RATE,
         "widget_events": WIDGET_EVENTS_RATE,
+        "widget_key": WIDGET_KEY_RATE,
         "widget_feedback": WIDGET_FEEDBACK_RATE,
     },
     "UNAUTHENTICATED_USER": None,
@@ -281,19 +275,14 @@ SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG
 SECURE_REFERRER_POLICY = "same-origin"
 SECURE_CROSS_ORIGIN_OPENER_POLICY = "same-origin"
 SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() in (
-    "true",
-    "1",
-    "yes",
+    "true", "1", "yes",
 )
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
 
 
 # Email
-# https://docs.djangoproject.com/en/6.1/topics/email/#topic-email-configuration
-
 MAILERS = {
     "default": {
-        # Console in development; SMTP in production (overridable via env).
         "BACKEND": os.getenv(
             "MAIL_BACKEND",
             "django.core.mail.backends.console.EmailBackend"
@@ -311,3 +300,11 @@ MAILERS = {
         },
     },
 }
+
+# ─── Monitoring ──────────────────────────────────────────────────────────
+# Error rate threshold (errors per minute) that triggers a notification.
+MONITORING_ERROR_THRESHOLD = int(os.getenv("MONITORING_ERROR_THRESHOLD", "10"))
+# Request latency threshold (ms) that triggers a pressure notification.
+MONITORING_LATENCY_THRESHOLD_MS = int(
+    os.getenv("MONITORING_LATENCY_THRESHOLD_MS", "5000")
+)

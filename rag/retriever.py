@@ -1,4 +1,6 @@
 import json
+import os
+import asyncio
 from functools import lru_cache
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -52,6 +54,7 @@ class Retriever:
             self.metadata: List[Dict] = []
             self.embeddings: np.ndarray = np.empty((0, 0), dtype="float32")
             self.index = None
+            self.index_type = "empty"
             self.embedder = embedder or Embedder(device=device)
             return
 
@@ -85,14 +88,55 @@ class Retriever:
             faiss.normalize_L2(self.embeddings)
 
         dimension = self.embeddings.shape[1]
-        self.index = faiss.IndexFlatIP(dimension)
+        index_mode = os.getenv("RAG_INDEX_TYPE", "auto").strip().lower()
+        use_hnsw = index_mode == "hnsw" or (
+            index_mode == "auto" and len(self.chunks) >= 5000
+        )
+        if use_hnsw:
+            hnsw_m = max(8, min(128, int(os.getenv("RAG_HNSW_M", "32"))))
+            self.index = faiss.IndexHNSWFlat(
+                dimension,
+                hnsw_m,
+                faiss.METRIC_INNER_PRODUCT,
+            )
+            self.index.hnsw.efSearch = max(
+                hnsw_m,
+                int(os.getenv("RAG_HNSW_EF_SEARCH", "64")),
+            )
+            self.index.hnsw.efConstruction = max(
+                hnsw_m,
+                int(os.getenv("RAG_HNSW_EF_CONSTRUCTION", "80")),
+            )
+            self.index_type = "hnsw"
+        else:
+            self.index = faiss.IndexFlatIP(dimension)
+            self.index_type = "flat"
         self.index.add(self.embeddings)
         self.embedder = embedder or Embedder(device=device)
         self._retrieve_cache = {}
 
     @lru_cache(maxsize=512)
     def _embed_query_cached(self, query: str) -> np.ndarray:
-        return self.embedder.embed_query_api(query).astype("float32")
+        if getattr(self.embedder, "embedder_type", "api") == "api":
+            vector = self.embedder.embed_query_api(query)
+        else:
+            vector = self.embedder.embed_query(query)
+        return np.asarray(vector, dtype="float32")
+
+    def embed_query(self, query: str) -> np.ndarray:
+        """Return one cached query vector for semantic cache + retrieval."""
+        if not self.chunks or self.index is None:
+            return np.empty((0,), dtype="float32")
+        query = str(query).strip()[:2000]
+        return self._embed_query_cached(query).copy()
+
+    async def aembed_query(self, query: str) -> np.ndarray:
+        if not self.chunks or self.index is None:
+            return np.empty((0,), dtype="float32")
+        query = str(query).strip()[:2000]
+        if getattr(self.embedder, "embedder_type", "api") != "api":
+            return await asyncio.to_thread(self.embed_query, query)
+        return await self.embedder.aembed_query_api(query)
 
     def retrieve(
         self,
@@ -101,12 +145,17 @@ class Retriever:
         abs_min_score: float = 0.10,
         rel_score_drop: float = 0.4,
         fallback_top_k: int = 5,
+        query_embedding: Optional[np.ndarray] = None,
     ) -> List[Dict]:
         if not self.chunks or self.index is None:
             return []
 
         query = str(query).strip()[:2000]
-        query_emb = self._embed_query_cached(query).copy()
+        query_emb = (
+            query_embedding.copy()
+            if query_embedding is not None
+            else self.embed_query(query)
+        )
         if query_emb.shape[0] != self.index.d:
             raise EmbeddingDimensionMismatchError(
                 f"Query embedding is {query_emb.shape[0]}-dimensional but the "
@@ -160,6 +209,25 @@ class Retriever:
             for pos, idx in enumerate(indices[:fallback_top_k])
             if idx >= 0
         ]
+
+    async def aretrieve(
+        self,
+        query: str,
+        top_k: int = 5,
+        query_embedding: Optional[np.ndarray] = None,
+    ) -> List[Dict]:
+        vector = query_embedding
+        if vector is None:
+            vector = await self.aembed_query(query)
+        return await asyncio.to_thread(
+            self.retrieve,
+            query,
+            top_k,
+            0.10,
+            0.4,
+            5,
+            vector,
+        )
 
     @staticmethod
     def _normalize_for_match(value: str) -> str:

@@ -28,6 +28,31 @@ class WidgetRateThrottle(SimpleRateThrottle):
         return getattr(settings, "WIDGET_RATE", "30/minute")
 
 
+class WidgetKeyRateThrottle(SimpleRateThrottle):
+    """Per-widget-key throttle: limits total requests from all visitors
+    of a single widget installation. Prevents a single client's site
+    from consuming all API capacity.
+
+    Falls back to IP-based throttling when no widget key is provided.
+    """
+    scope = "widget_key"
+
+    def get_cache_key(self, request, view):
+        widget_key = request.headers.get("X-Widget-Key", "")
+        if not widget_key:
+            # No key — fall back to IP-based identification
+            ident = request.META.get("REMOTE_ADDR", "unknown")
+        else:
+            ident = f"wk:{widget_key}"
+        return self.cache_format % {
+            "scope": self.scope,
+            "ident": ident,
+        }
+
+    def get_rate(self):
+        return getattr(settings, "WIDGET_KEY_RATE", "1000/minute")
+
+
 class WidgetEventsThrottle(WidgetRateThrottle):
     scope = "widget_events"
 

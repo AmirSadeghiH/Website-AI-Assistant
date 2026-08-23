@@ -1,0 +1,112 @@
+# ─── AI Support Platform — Production Stack ──────────────────────────────
+# One command to run everything:
+#   docker compose up -d --build
+#
+# First time setup:
+#   docker compose exec web python manage.py migrate
+#   docker compose exec web python manage.py createsuperuser
+#   docker compose exec web python manage.py collectstatic --noinput
+#
+# Stop:
+#   docker compose down
+# ──────────────────────────────────────────────────────────────────────────
+
+services:
+  # ─── Django + Gunicorn ──────────────────────────────────────────────
+  web:
+    build: .
+    container_name: ai-support-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_NAME=${DB_NAME:-ai_support}
+      - DB_USER=${DB_USER:-ai_support}
+      - DB_PASSWORD=${DB_PASSWORD:-change-me-in-production}
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+      - corpus_data:/app/Data
+    networks:
+      - internal
+    expose:
+      - "8000"
+
+  # ─── PostgreSQL ─────────────────────────────────────────────────────
+  db:
+    image: postgres:16-alpine
+    container_name: ai-support-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-ai_support}
+      POSTGRES_USER: ${DB_USER:-ai_support}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me-in-production}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-ai_support} -d ${DB_NAME:-ai_support}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Redis (caching + rate limiting) ────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: ai-support-redis
+    restart: unless-stopped
+    command: redis-server --maxmemory 128mb --maxmemory-policy allkeys-lru
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── Nginx (TLS termination + static files) ────────────────────────
+  nginx:
+    image: nginx:alpine
+    container_name: ai-support-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - static_data:/usr/share/nginx/static:ro
+      - media_data:/usr/share/nginx/media:ro
+      - certbot_data:/etc/letsencrypt:ro
+    depends_on:
+      - web
+    networks:
+      - internal
+
+  # ─── Certbot (Let's Encrypt auto-renewal) ──────────────────────────
+  certbot:
+    image: certbot/certbot
+    container_name: ai-support-certbot
+    volumes:
+      - certbot_data:/etc/letsencrypt
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    networks:
+      - internal
+
+volumes:
+  pg_data:
+  media_data:
+  static_data:
+  corpus_data:
+  certbot_data:
+
+networks:
+  internal:
+    driver: bridge

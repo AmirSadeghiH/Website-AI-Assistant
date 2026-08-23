@@ -4,6 +4,81 @@
 {% block extrastyle %}
   {{ block.super }}
   <link rel="stylesheet" href="{% static 'admin/css/support_admin.css' %}">
+  <script src="{% static 'admin/css/chart.umd.min.js' %}"></script>
+  <style>
+    .notification-list { padding: 12px; }
+    .notification-item { padding: 10px 14px; margin-bottom: 8px; border-radius: 8px; border-right: 4px solid; }
+    .notification-item.critical { background: #fef2f2; border-color: #ef4444; }
+    .notification-item.warning { background: #fffbeb; border-color: #f59e0b; }
+    .notification-item.info { background: #eff6ff; border-color: #3b82f6; }
+    .notification-item h4 { margin: 0 0 4px 0; font-size: 13px; }
+    .notification-item p { margin: 0; font-size: 12px; color: #6b7280; }
+    .notification-item small { color: #9ca3af; font-size: 11px; }
+    .metric-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 12px; }
+    .metric-badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+    .metric-badge.ok { background: #dcfce7; color: #166534; }
+    .metric-badge.warn { background: #fef3c7; color: #92400e; }
+    .metric-badge.error { background: #fee2e2; color: #991b1b; }
+    .empty-notif { text-align: center; padding: 24px; color: #9ca3af; }
+
+    /* ─── Analytics Dashboard ─── */
+    .analytics-section { margin-top: 24px; }
+    .analytics-section h2 { font-size: 18px; font-weight: 700; margin-bottom: 16px; color: #1e293b; }
+    .chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+    .chart-card { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #e2e8f0; }
+    .chart-card h3 { font-size: 14px; font-weight: 600; color: #334155; margin: 0 0 12px 0; }
+    .chart-card canvas { max-height: 220px; }
+
+    .summary-cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 24px; }
+    .summary-card { background: #fff; border-radius: 12px; padding: 16px 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #e2e8f0; text-align: center; }
+    .summary-card .num { font-size: 28px; font-weight: 800; color: #1e293b; }
+    .summary-card .label { font-size: 12px; color: #64748b; margin-top: 4px; }
+    .summary-card.success .num { color: #059669; }
+    .summary-card.danger .num { color: #dc2626; }
+    .summary-card.primary .num { color: #4f46e5; }
+    .summary-card.amber .num { color: #d97706; }
+
+    .period-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+    .period-tab { padding: 6px 16px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fff; color: #64748b; font-size: 13px; font-weight: 500; cursor: pointer; transition: all .2s; }
+    .period-tab:hover { background: #f1f5f9; }
+    .period-tab.active { background: #4f46e5; color: #fff; border-color: #4f46e5; }
+
+    /* ─── FAQ Leaderboard ─── */
+    .faq-section { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .faq-list { background: #fff; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 1px solid #e2e8f0; }
+    .faq-list h3 { font-size: 14px; font-weight: 600; color: #334155; margin: 0 0 12px 0; }
+    .faq-item { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-bottom: 1px solid #f1f5f9; }
+    .faq-item:last-child { border-bottom: none; }
+    .faq-rank { width: 28px; height: 28px; border-radius: 8px; background: #f1f5f9; display: grid; place-items: center; font-size: 12px; font-weight: 700; color: #64748b; flex-shrink: 0; }
+    .faq-rank.top3 { background: #4f46e5; color: #fff; }
+    .faq-text { flex: 1; font-size: 13px; color: #1e293b; line-height: 1.5; }
+    .faq-count { font-size: 12px; font-weight: 600; color: #64748b; background: #f1f5f9; padding: 3px 10px; border-radius: 999px; flex-shrink: 0; }
+    .faq-empty { text-align: center; padding: 32px; color: #9ca3af; font-size: 13px; }
+
+        /* جلوگیری از اسکرول افقی در بخش چارت‌ها */
+    .chart-grid {
+      max-width: 100%;
+      overflow: hidden;
+    }
+    .chart-card {
+      min-width: 0;          /* اجازه می‌دهد کارت در گرید جمع شود */
+      overflow: hidden;
+      box-sizing: border-box;
+    }
+    .chart-card canvas {
+      max-width: 100%;
+      height: auto !important; /* اطمینان از تطابق ارتفاع با عرض */
+      display: block;
+    }
+    .support-dashboard {
+      overflow-x: hidden;    /* ایمنی اضافی برای کل صفحه */
+    }
+
+    @media (max-width: 900px) {
+      .chart-grid, .faq-section { grid-template-columns: 1fr; }
+      .summary-cards { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
 {% endblock %}
 
 {% block branding %}
@@ -22,7 +97,7 @@
       <div>
         <span class="support-eyebrow">AI SUPPORT / CONTROL ROOM</span>
         <h1>مرکز فرماندهی دستیار هوشمند</h1>
-        <p>وضعیت مکالمات، کیفیت پاسخ‌ها، اسناد دانش و تنظیمات ویجت را از یکجا مدیریت کنید.</p>
+        <p>اسناد دانش، تنظیمات ویجت، کلیدهای API و نوتیفیکیشن‌ها را از یکجا مدیریت کنید.</p>
       </div>
       <a class="support-primary-action" href="{% url 'admin:chat_widgetconfig_changelist' %}">
         تنظیمات ویجت
@@ -32,50 +107,119 @@
 
     <section class="support-stat-grid">
       <article class="support-stat-card accent-indigo">
-        <span class="support-stat-label">کل مکالمات</span>
-        <strong>{{ dashboard_stats.conversations }}</strong>
-        <span class="support-stat-meta">از شروع سرویس</span>
+        <span class="support-stat-label">اسناد دانش</span>
+        <strong>{{ dashboard_stats.documents }}</strong>
+        <span class="support-stat-meta">{{ dashboard_stats.documents_ready }} آماده</span>
       </article>
       <article class="support-stat-card accent-cyan">
-        <span class="support-stat-label">پیام‌های امروز</span>
-        <strong>{{ dashboard_stats.messages_today }}</strong>
+        <span class="support-stat-label">رویدادهای امروز</span>
+        <strong>{{ dashboard_stats.events_today }}</strong>
         <span class="support-stat-meta">فعالیت روز جاری</span>
       </article>
       <article class="support-stat-card accent-emerald">
-        <span class="support-stat-label">کل پیام‌ها</span>
-        <strong>{{ dashboard_stats.messages }}</strong>
-        <span class="support-stat-meta">کاربر و دستیار</span>
+        <span class="support-stat-label">پاسخ‌ها (۱ دقیقه)</span>
+        <strong>{{ dashboard_stats.messages_this_minute }}</strong>
+        <span class="support-stat-meta">درخواست موفق</span>
       </article>
       <article class="support-stat-card accent-amber">
-        <span class="support-stat-label">پاسخ‌های مفید</span>
-        <strong>{{ dashboard_stats.helpful }}</strong>
-        <span class="support-stat-meta">{{ dashboard_stats.not_helpful }} پاسخ نیازمند بررسی</span>
+        <span class="support-stat-label">خطاها (۱ دقیقه)</span>
+        <strong>{{ dashboard_stats.errors_this_minute }}</strong>
+        <span class="support-stat-meta">
+          {% if dashboard_stats.errors_this_minute > 0 %}نیاز به بررسی{% else %}وضعیت عادی{% endif %}
+        </span>
       </article>
     </section>
 
-    <section class="support-main-grid">
+    <!-- ═══════ Analytics Dashboard ═══════ -->
+    <section class="analytics-section">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <h2 style="margin:0">📊 آمار و تحلیل</h2>
+        <div class="period-tabs" id="period-tabs">
+          <button class="period-tab active" data-period="day" data-days="30">روزانه</button>
+          <button class="period-tab" data-period="week" data-days="90">هفتگی</button>
+          <button class="period-tab" data-period="month" data-days="365">ماهانه</button>
+        </div>
+      </div>
+
+      <div class="summary-cards" id="summary-cards">
+        <div class="summary-card primary"><div class="num" id="stat-total-messages">-</div><div class="label">کل پاسخ‌ها</div></div>
+        <div class="summary-card danger"><div class="num" id="stat-total-errors">-</div><div class="label">کل خطاها</div></div>
+        <div class="summary-card success"><div class="num" id="stat-helpful">-</div><div class="label">مثبت 👍</div></div>
+        <div class="summary-card amber"><div class="num" id="stat-avg-latency">-</div><div class="label">میانگین تأخیر (ms)</div></div>
+      </div>
+
+      <div class="chart-grid">
+        <div class="chart-card">
+          <h3>📈 تعداد پاسخ‌ها</h3>
+          <canvas id="chart-messages"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>⚠️ خطاها</h3>
+          <canvas id="chart-errors"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>🚀 بارگذاری ویجت</h3>
+          <canvas id="chart-loads"></canvas>
+        </div>
+        <div class="chart-card">
+          <h3>👍 رضایت کاربران</h3>
+          <canvas id="chart-feedback"></canvas>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ FAQ Leaderboard ═══════ -->
+    <section class="analytics-section">
+      <div class="faq-section">
+        <div class="faq-list">
+          <h3>🏆 سوالات پرتکرار (۳۰ روز اخیر)</h3>
+          <div id="faq-leaderboard">
+            <div class="faq-empty">در حال بارگذاری...</div>
+          </div>
+        </div>
+        <div class="faq-list">
+          <h3>💡 پیشنهادات برای بخش سوالات متداول</h3>
+          <p style="font-size:13px;color:#64748b;line-height:1.7">
+            سوالات پرتکرار بالا نامزدهای مناسبی برای اضافه شدن به بخش
+            <strong>«سوالات متداول»</strong> در تنظیمات ویجت هستند.
+            با اضافه کردن این سوالات به لیست پیشنهادات، کاربران می‌توانند
+            با یک کلیک به پاسخ دسترسی پیدا کنند و بار API کاهش یابد.
+          </p>
+          <div style="margin-top:16px">
+            <a href="{% url 'admin:chat_widgetconfig_changelist' %}"
+               style="display:inline-block;padding:10px 20px;background:#4f46e5;color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:600">
+              رفتن به تنظیمات ویجت ←
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══════ Notifications ═══════ -->
+    <section class="support-main-grid" style="margin-top:24px">
       <div class="support-panel">
         <div class="support-panel-heading">
           <div>
-            <span class="support-eyebrow">RECENT ACTIVITY</span>
-            <h2>آخرین مکالمات</h2>
+            <span class="support-eyebrow">NOTIFICATIONS</span>
+            <h2>نوتیفیکیشن‌ها</h2>
           </div>
-          <a href="{% url 'admin:chat_conversation_changelist' %}">مشاهده همه</a>
+          {% if dashboard_notifications %}
+          <form method="post" action="{% url 'admin:notifications-read' %}" style="margin:0">
+            {% csrf_token %}
+            <button type="submit" style="background:none;border:none;color:#6366f1;cursor:pointer;font-size:12px;font-weight:600">خوانده شد ✓</button>
+          </form>
+          {% endif %}
         </div>
-        <div class="support-conversation-list">
-          {% for conversation in dashboard_recent %}
-            <a class="support-conversation-row" href="{% url 'admin:chat_conversation_change' conversation.pk %}">
-              <span class="support-conversation-avatar">AI</span>
-              <span class="support-conversation-copy">
-                <strong>{{ conversation.external_id|truncatechars:26 }}</strong>
-                <small>{{ conversation.last_activity_at|date:"Y/m/d H:i" }} · {{ conversation.messages.count }} پیام</small>
-              </span>
-              <span class="support-row-arrow">←</span>
-            </a>
+        <div class="notification-list">
+          {% for notif in dashboard_notifications %}
+            <div class="notification-item {{ notif.severity }}">
+              <h4>{{ notif.title }}</h4>
+              <p>{{ notif.message|truncatechars:120 }}</p>
+              <small>{{ notif.created_at|timesince }} پیش</small>
+            </div>
           {% empty %}
-            <div class="support-empty-state">
-              <span>✦</span>
-              <p>هنوز مکالمه‌ای ثبت نشده است.</p>
+            <div class="empty-notif">
+              <p>✅ هیچ نوتیفیکیشن خوانده‌نشده‌ای وجود ندارد.</p>
             </div>
           {% endfor %}
         </div>
@@ -96,45 +240,215 @@
           </a>
           <a href="{% url 'admin:chat_providersettings_changelist' %}">
             <span class="support-quick-icon">⚙</span>
-            <span><strong>کلیدها و مدل‌های AI</strong><small>LLM، embedding و ظرفیت</small></span>
+            <span><strong>تنظیمات API</strong><small>کلیدها، مدل‌ها و ظرفیت</small></span>
             <b>←</b>
           </a>
           <a href="{% url 'admin:chat_document_changelist' %}">
-            <span class="support-quick-icon">⌁</span>
-            <span><strong>اسناد دانش</strong><small>آپلود و ساخت embedding</small></span>
-            <b>←</b>
-          </a>
-          <a href="{% url 'admin:chat_message_changelist' %}">
-            <span class="support-quick-icon">◌</span>
-            <span><strong>بررسی پیام‌ها</strong><small>بازخورد و زمان پاسخ</small></span>
+            <span class="support-quick-icon">📄</span>
+            <span><strong>اسناد دانش</strong><small>آپلود و پردازش</small></span>
             <b>←</b>
           </a>
           <a href="{% url 'admin:chat_analyticsevent_changelist' %}">
-            <span class="support-quick-icon">⌁</span>
-            <span><strong>تحلیل رویدادها</strong><small>رفتار و خطاهای سیستم</small></span>
+            <span class="support-quick-icon">📊</span>
+            <span><strong>رویدادها</strong><small>لاگ فعالیت‌ها</small></span>
+            <b>←</b>
+          </a>
+          <a href="{% url 'admin:chat_adminnotification_changelist' %}">
+            <span class="support-quick-icon">🔔</span>
+            <span><strong>نوتیفیکیشن‌ها</strong><small>هشدارها و خطاها</small></span>
             <b>←</b>
           </a>
         </div>
       </div>
     </section>
-
-    <section class="support-models-panel">
-      <div class="support-panel-heading">
-        <div>
-          <span class="support-eyebrow">WORKSPACE</span>
-          <h2>دسترسی به بخش‌ها</h2>
-        </div>
-      </div>
-      <div class="support-model-grid">
-        {% for app in app_list %}
-          {% for model in app.models %}
-            <a href="{{ model.admin_url }}" class="support-model-card">
-              <strong>{{ model.name }}</strong>
-              <span>مدیریت و مشاهده اطلاعات</span>
-            </a>
-          {% endfor %}
-        {% endfor %}
-      </div>
-    </section>
   </div>
+
+  <!-- ═══════ Chart.js Analytics Script ═══════ -->
+  <script>
+  (function() {
+    var messagesChart, errorsChart, loadsChart, feedbackChart;
+    var currentPeriod = 'day';
+    var currentDays = 30;
+
+    function fetchAnalytics(period, days) {
+      fetch('/admin/analytics-data/?period=' + period + '&days=' + days, {
+        credentials: 'same-origin'
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        updateSummaryCards(data);
+        renderMessagesChart(data.messages, period);
+        renderErrorsChart(data.errors, period);
+        renderLoadsChart(data.loads, period);
+        renderFeedbackChart(data.helpful, data.not_helpful);
+      })
+      .catch(function() {});
+    }
+
+    function fetchFaqLeaderboard() {
+      fetch('/admin/faq-leaderboard/?days=30&limit=10', {
+        credentials: 'same-origin'
+      })
+      .then(function(r) { return r.json(); })
+      .then(function(data) {
+        renderFaqLeaderboard(data.questions || []);
+      })
+      .catch(function() {});
+    }
+
+    function updateSummaryCards(data) {
+      document.getElementById('stat-total-messages').textContent = data.total_messages || 0;
+      document.getElementById('stat-total-errors').textContent = data.total_errors || 0;
+      document.getElementById('stat-helpful').textContent = data.helpful || 0;
+      document.getElementById('stat-avg-latency').textContent = data.avg_latency_ms || 0;
+    }
+
+    function makeLabels(items, period) {
+      return items.map(function(item) {
+        var d = new Date(item.date);
+        if (period === 'month') return d.toLocaleDateString('fa-IR', {year:'numeric', month:'short'});
+        if (period === 'week') return d.toLocaleDateString('fa-IR', {month:'short', day:'numeric'});
+        return d.toLocaleDateString('fa-IR', {month:'short', day:'numeric'});
+      });
+    }
+
+    function makeCounts(items) {
+      return items.map(function(item) { return item.count; });
+    }
+
+    function chartOpts(title) {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: { size: 10 }, maxRotation: 45 } },
+          y: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { font: { size: 10 }, stepSize: 1 } }
+        }
+      };
+    }
+
+    function renderMessagesChart(items, period) {
+      var ctx = document.getElementById('chart-messages');
+      if (messagesChart) messagesChart.destroy();
+      messagesChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: makeLabels(items, period),
+          datasets: [{
+            data: makeCounts(items),
+            borderColor: '#4f46e5',
+            backgroundColor: 'rgba(79,70,229,0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+            pointBackgroundColor: '#4f46e5'
+          }]
+        },
+        options: chartOpts('پاسخ‌ها')
+      });
+    }
+
+    function renderErrorsChart(items, period) {
+      var ctx = document.getElementById('chart-errors');
+      if (errorsChart) errorsChart.destroy();
+      errorsChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: makeLabels(items, period),
+          datasets: [{
+            data: makeCounts(items),
+            backgroundColor: 'rgba(239,68,68,0.7)',
+            borderRadius: 4
+          }]
+        },
+        options: chartOpts('خطاها')
+      });
+    }
+
+    function renderLoadsChart(items, period) {
+      var ctx = document.getElementById('chart-loads');
+      if (loadsChart) loadsChart.destroy();
+      loadsChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: makeLabels(items, period),
+          datasets: [{
+            data: makeCounts(items),
+            borderColor: '#06b6d4',
+            backgroundColor: 'rgba(6,182,212,0.1)',
+            fill: true,
+            tension: 0.4,
+            pointRadius: 3,
+            pointBackgroundColor: '#06b6d4'
+          }]
+        },
+        options: chartOpts('بارگذاری')
+      });
+    }
+
+    function renderFeedbackChart(helpful, notHelpful) {
+      var ctx = document.getElementById('chart-feedback');
+      if (feedbackChart) feedbackChart.destroy();
+      feedbackChart = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: ['مثبت 👍', 'منفی 👎'],
+          datasets: [{
+            data: [helpful || 0, notHelpful || 0],
+            backgroundColor: ['#10b981', '#ef4444'],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { position: 'bottom', labels: { font: { size: 12 } } }
+          },
+          cutout: '65%'
+        }
+      });
+    }
+
+    function renderFaqLeaderboard(questions) {
+      var container = document.getElementById('faq-leaderboard');
+      if (!questions.length) {
+        container.innerHTML = '<div class="faq-empty">هنوز داده‌ای ثبت نشده است.<br>وقتی کاربران سوال بپرسند و بازخورد بدهند، اینجا نمایش داده می‌شود.</div>';
+        return;
+      }
+      var html = '';
+      questions.forEach(function(q, i) {
+        var rankClass = i < 3 ? 'faq-rank top3' : 'faq-rank';
+        html += '<div class="faq-item">' +
+          '<span class="' + rankClass + '">' + (i + 1) + '</span>' +
+          '<span class="faq-text">' + escapeHtmlFaq(q.question) + '</span>' +
+          '<span class="faq-count">' + q.count + '×</span>' +
+        '</div>';
+      });
+      container.innerHTML = html;
+    }
+
+    function escapeHtmlFaq(s) {
+      var div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    // Period tab switching
+    document.getElementById('period-tabs').addEventListener('click', function(e) {
+      var btn = e.target.closest('.period-tab');
+      if (!btn) return;
+      document.querySelectorAll('.period-tab').forEach(function(b) { b.classList.remove('active'); });
+      btn.classList.add('active');
+      currentPeriod = btn.dataset.period;
+      currentDays = parseInt(btn.dataset.days, 10);
+      fetchAnalytics(currentPeriod, currentDays);
+    });
+
+    // Initial load
+    fetchAnalytics('day', 30);
+    fetchFaqLeaderboard();
+  })();
+  </script>
 {% endblock %}

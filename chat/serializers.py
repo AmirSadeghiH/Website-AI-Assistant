@@ -4,75 +4,21 @@ from rest_framework import serializers
 
 
 CONVERSATION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,100}$")
-MAX_HISTORY_ITEMS = 8
-MAX_HISTORY_CONTENT_LENGTH = 1600
 MAX_METADATA_BYTES = 4096
-
-
-class HistoryItemSerializer(serializers.Serializer):
-    role = serializers.ChoiceField(choices=("user", "assistant"))
-    content = serializers.CharField(
-        max_length=MAX_HISTORY_CONTENT_LENGTH,
-        trim_whitespace=True,
-    )
 
 
 class ChatRequestSerializer(serializers.Serializer):
     message = serializers.CharField(max_length=4000, trim_whitespace=True)
-    conversation_id = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-    history = HistoryItemSerializer(
-        many=True,
-        required=False,
-        default=list,
-    )
 
     def validate_message(self, value):
         if not value:
             raise serializers.ValidationError("The message is required.")
         return value
 
-    def validate_conversation_id(self, value):
-        if value and not CONVERSATION_ID_RE.fullmatch(value):
-            raise serializers.ValidationError("Invalid conversation id.")
-        return value
-
-    def validate_history(self, value):
-        return value[-MAX_HISTORY_ITEMS:]
-
-
-class HistoryQuerySerializer(serializers.Serializer):
-    conversation_id = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-    )
-
-    def validate_conversation_id(self, value):
-        if value and not CONVERSATION_ID_RE.fullmatch(value):
-            raise serializers.ValidationError("Invalid conversation id.")
-        return value
-
 
 class EventSerializer(serializers.Serializer):
-    conversation_id = serializers.CharField(
-        max_length=100,
-        required=False,
-        allow_blank=True,
-        default="",
-    )
     event_type = serializers.CharField(max_length=40)
     metadata = serializers.JSONField(required=False, default=dict)
-
-    def validate_conversation_id(self, value):
-        if value and not CONVERSATION_ID_RE.fullmatch(value):
-            raise serializers.ValidationError("Invalid conversation id.")
-        return value
 
     def validate_event_type(self, value):
         from .models import AnalyticsEvent
@@ -91,11 +37,17 @@ class EventSerializer(serializers.Serializer):
 
 
 class FeedbackSerializer(serializers.Serializer):
-    conversation_id = serializers.CharField(max_length=100)
-    message_id = serializers.IntegerField(min_value=1)
-    feedback = serializers.ChoiceField(choices=("helpful", "not_helpful"))
+    """Feedback submitted by the widget after the user rates an answer.
 
-    def validate_conversation_id(self, value):
-        if not CONVERSATION_ID_RE.fullmatch(value):
-            raise serializers.ValidationError("Invalid conversation id.")
-        return value
+    Fields:
+    - helpful (bool, required): True = thumbs up, False = thumbs down
+    - question (str, optional): The user's original question (for linking)
+    - answer_preview (str, optional): First ~300 chars of the AI answer
+    - session_id (str, optional): Anonymous browser session identifier
+    - comment (str, optional): Optional free-text comment from the user
+    """
+    helpful = serializers.BooleanField()
+    question = serializers.CharField(max_length=4000, required=False, default="")
+    answer_preview = serializers.CharField(max_length=1000, required=False, default="")
+    session_id = serializers.CharField(max_length=100, required=False, default="")
+    comment = serializers.CharField(max_length=1000, required=False, default="")

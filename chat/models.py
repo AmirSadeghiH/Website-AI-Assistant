@@ -8,7 +8,6 @@ from .encrypted_fields import EncryptedCharField
 
 
 def generate_public_key():
-    # Kept for the historical 0001 migration; multi-site no longer uses it.
     return uuid.uuid4().hex
 
 
@@ -17,7 +16,7 @@ class ProviderSettings(models.Model):
 
     Values here override environment variables. API keys are encrypted at
     rest with a key derived from SECRET_KEY. Blank values fall back to the
-    matching environment variable, so a fresh install works out of the box.
+    matching environment variable.
     """
 
     singleton_key = models.PositiveSmallIntegerField(
@@ -42,9 +41,7 @@ class ProviderSettings(models.Model):
     rag_max_concurrent = models.PositiveIntegerField(null=True, blank=True)
     response_cache_seconds = models.PositiveIntegerField(null=True, blank=True)
 
-    # Widget installation / access control. Editable from the admin panel so
-    # a new customer site can be onboarded without touching the server.
-    # These are NOT secrets: the key ships inside the widget tag.
+    # Widget installation / access control
     widget_public_key = models.CharField(max_length=200, blank=True)
     widget_allowed_origins = models.TextField(
         blank=True,
@@ -126,26 +123,92 @@ class WidgetConfig(models.Model):
         ),
         default="gradient",
     )
-    panel_width = models.PositiveIntegerField(default=380)
-    panel_height = models.PositiveIntegerField(default=600)
-    border_radius = models.PositiveIntegerField(default=22)
+    dark_mode = models.CharField(
+        max_length=10,
+        choices=(
+            ("auto", "Auto (system)"),
+            ("light", "Light"),
+            ("dark", "Dark"),
+        ),
+        default="auto",
+    )
+    accent_color = models.CharField(max_length=20, default="#a78bfa")
+    panel_width = models.PositiveIntegerField(default=400)
+    panel_height = models.PositiveIntegerField(default=640)
+    border_radius = models.PositiveIntegerField(default=24)
     mobile_fullscreen = models.BooleanField(default=True)
     logo_url = models.URLField(max_length=1000, blank=True)
     font_family = models.CharField(
-        max_length=120,
-        default="Inter, ui-sans-serif, system-ui, sans-serif",
+        max_length=200,
+        default="'Vazirmatn', 'Inter', 'IRANSansX', ui-sans-serif, system-ui, sans-serif",
+    )
+    font_size = models.CharField(
+        max_length=10,
+        choices=(
+            ("small", "Small"),
+            ("normal", "Normal"),
+            ("large", "Large"),
+        ),
+        default="normal",
+    )
+    bubble_style = models.CharField(
+        max_length=10,
+        choices=(
+            ("rounded", "Rounded"),
+            ("sharp", "Sharp"),
+            ("pill", "Pill"),
+        ),
+        default="rounded",
     )
     position = models.CharField(
         max_length=20,
         choices=(
             ("bottom-right", "Bottom right"),
             ("bottom-left", "Bottom left"),
+            ("top-right", "Top right"),
+            ("top-left", "Top left"),
         ),
         default="bottom-right",
     )
-    show_history = models.BooleanField(default=True)
-    allow_feedback = models.BooleanField(default=True)
+    position_vertical_offset = models.PositiveIntegerField(
+        default=24,
+        help_text="Distance from top/bottom edge in pixels",
+    )
+    position_horizontal_offset = models.PositiveIntegerField(
+        default=24,
+        help_text="Distance from left/right edge in pixels",
+    )
+    icon_type = models.CharField(
+        max_length=10,
+        choices=(
+            ("default", "Default icon"),
+            ("custom", "Custom icon upload"),
+        ),
+        default="default",
+    )
+    default_icon_choice = models.CharField(
+        max_length=30,
+        choices=(
+            ("chat-bubble", "Chat bubble 💬"),
+            ("message-circle", "Message circle 📩"),
+            ("robot", "Robot 🤖"),
+            ("headset", "Headset 🎧"),
+            ("sparkle", "Sparkle ✨"),
+            ("lightning", "Lightning ⚡"),
+        ),
+        default="chat-bubble",
+    )
+    custom_icon_file = models.FileField(
+        upload_to="widget-icons/",
+        blank=True,
+        help_text="Upload a PNG or SVG file (max 200KB)",
+    )
+    show_feedback = models.BooleanField(default=True)
     show_powered_by = models.BooleanField(default=True)
+    show_timestamp = models.BooleanField(default=True)
+    show_avatar = models.BooleanField(default=True)
+    enable_sounds = models.BooleanField(default=False)
+    enable_animations = models.BooleanField(default=True)
     suggestions = models.JSONField(default=list, blank=True)
     temperature = models.DecimalField(
         max_digits=3,
@@ -215,86 +278,18 @@ class Document(models.Model):
         return self.title
 
 
-class Conversation(models.Model):
-    external_id = models.CharField(max_length=100, unique=True)
-    page_url = models.URLField(max_length=1000, blank=True)
-    referrer = models.URLField(max_length=1000, blank=True)
-    user_agent = models.TextField(blank=True)
-    is_archived = models.BooleanField(default=False)
-    started_at = models.DateTimeField(auto_now_add=True)
-    last_activity_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        ordering = ("-last_activity_at",)
-        verbose_name = "Conversation"
-        verbose_name_plural = "Conversations"
-
-    def __str__(self):
-        return self.external_id
-
-
-class Message(models.Model):
-    ROLE_CHOICES = (
-        ("user", "User"),
-        ("assistant", "Assistant"),
-        ("system", "System"),
-    )
-    FEEDBACK_CHOICES = (
-        ("helpful", "Helpful"),
-        ("not_helpful", "Not helpful"),
-    )
-
-    conversation = models.ForeignKey(
-        Conversation,
-        on_delete=models.CASCADE,
-        related_name="messages",
-    )
-    role = models.CharField(max_length=20, choices=ROLE_CHOICES)
-    content = models.TextField()
-    feedback = models.CharField(
-        max_length=20,
-        choices=FEEDBACK_CHOICES,
-        blank=True,
-    )
-    latency_ms = models.PositiveIntegerField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ("created_at", "id")
-        verbose_name = "Message"
-        verbose_name_plural = "Messages"
-        indexes = [
-            models.Index(
-                fields=("conversation", "created_at"),
-                name="msg_conv_created_idx",
-            ),
-        ]
-
-    def __str__(self):
-        return f"{self.role}: {self.content[:60]}"
-
-
 class AnalyticsEvent(models.Model):
     EVENT_CHOICES = (
         ("widget_loaded", "Widget loaded"),
-        ("conversation_started", "Conversation started"),
         ("user_message", "User message"),
         ("assistant_answered", "Assistant answered"),
         ("answer_helpful", "Answer helpful"),
         ("answer_not_helpful", "Answer not helpful"),
-        ("human_requested", "Human requested"),
-        ("ticket_created", "Ticket created"),
         ("fallback_triggered", "Fallback triggered"),
-        ("conversation_archived", "Conversation archived"),
+        ("error_occurred", "Error occurred"),
+        ("high_pressure", "High pressure detected"),
     )
 
-    conversation = models.ForeignKey(
-        Conversation,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="analytics_events",
-    )
     event_type = models.CharField(max_length=40, choices=EVENT_CHOICES)
     path = models.CharField(max_length=1000, blank=True)
     metadata = models.JSONField(default=dict, blank=True)
@@ -313,3 +308,30 @@ class AnalyticsEvent(models.Model):
 
     def __str__(self):
         return self.event_type
+
+
+class AdminNotification(models.Model):
+    """In-app notifications for admin panel alerts."""
+
+    SEVERITY_CHOICES = (
+        ("info", "Info"),
+        ("warning", "Warning"),
+        ("critical", "Critical"),
+    )
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    severity = models.CharField(
+        max_length=20,
+        choices=SEVERITY_CHOICES,
+        default="warning",
+    )
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "Notification"
+        verbose_name_plural = "Notifications"
+
+    def __str__(self):
+        return f"[{self.severity}] {self.title}"

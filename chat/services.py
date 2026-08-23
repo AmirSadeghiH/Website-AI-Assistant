@@ -2,6 +2,7 @@ import hashlib
 import json
 import os
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 from django.conf import settings
 from django.core.cache import cache
@@ -32,13 +33,11 @@ SYSTEM_PROMPT = (
 
 
 class CapacityLimitedError(RuntimeError):
-    """The RAG pipeline is saturated; the caller should retry shortly."""
-
     retry_after = 2
 
 
 class CorpusConfigError(RuntimeError):
-    """The corpus or provider configuration prevents answering questions."""
+    pass
 
 
 def _env(name, default=""):
@@ -46,11 +45,6 @@ def _env(name, default=""):
 
 
 def get_provider_values():
-    """Merge admin-managed provider settings over environment defaults.
-
-    Values stored in ProviderSettings (editable from the admin panel) win
-    over environment variables; blank stored values keep the env fallback.
-    """
     from .models import ProviderSettings
 
     values = {
@@ -115,12 +109,6 @@ _rag_slots_lock = threading.Lock()
 
 
 def get_rag_slots():
-    """Process-wide semaphore bounding concurrent LLM calls.
-
-    Created lazily so ``override_settings`` in tests and runtime changes to
-    ``RAG_MAX_CONCURRENT`` are honored. Bounded by the provider settings
-    value when set, else the environment default.
-    """
     global _rag_slots
     if _rag_slots is None:
         with _rag_slots_lock:
@@ -133,11 +121,16 @@ def get_rag_slots():
     return _rag_slots
 
 
-def _cache_key(question, history, model, temperature, system_prompt, user_prompt):
+# Shared thread pool for non-blocking LLM/embedding calls.
+_llm_executor = ThreadPoolExecutor(
+    max_workers=int(os.getenv("LLM_MAX_WORKERS", "8")),
+)
+
+
+def _cache_key(question, model, temperature, system_prompt, user_prompt):
     payload = json.dumps(
         {
             "question": " ".join(question.split()),
-            "history": history[-6:],
             "model": model,
             "temperature": temperature,
             "system_prompt": system_prompt,
@@ -198,17 +191,22 @@ class RAGService:
         )
 
     def ask(self, question: str, history=None) -> str:
-        history = history or []
+        """Answer a question using the RAG pipeline.
+
+        The actual LLM call is dispatched to a thread pool so the worker
+        thread is not blocked during the network round-trip.  A response
+        cache (Redis-backed in production) avoids redundant calls for
+        identical questions.
+        """
+        question = str(question).strip()[:2000]
         key = _cache_key(
             question,
-            history,
             self.llm.model,
             self.llm.temperature,
             self.llm.system_prompt,
             self.agent.user_prompt,
         )
-        cacheable = not history
-        if self.cache_seconds and cacheable:
+        if self.cache_seconds:
             cached_answer = cache.get(key)
             if cached_answer:
                 return cached_answer
@@ -216,10 +214,17 @@ class RAGService:
         if not get_rag_slots().acquire(timeout=0.15):
             raise CapacityLimitedError()
         try:
-            answer = self.agent.answer(question, history=history)
+            # Run the LLM call in a thread pool so the worker thread is
+            # free to handle other requests while waiting for the API.
+            future = _llm_executor.submit(
+                self.agent.answer, question, history=history
+            )
+            answer = future.result(
+                timeout=float(self.provider.get("llm_timeout_seconds", 30)) + 5
+            )
         finally:
             get_rag_slots().release()
 
-        if self.cache_seconds and cacheable:
+        if self.cache_seconds:
             cache.set(key, answer, timeout=self.cache_seconds)
         return answer

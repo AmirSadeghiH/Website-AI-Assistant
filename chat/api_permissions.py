@@ -1,3 +1,4 @@
+import fnmatch
 import hashlib
 import hmac
 import json
@@ -48,6 +49,56 @@ def get_widget_access_config():
     return data
 
 
+def _origin_matches(origin, patterns):
+    """Check if an origin matches any of the allowed patterns.
+
+    Supports exact matches and wildcard patterns:
+    - ``https://example.com`` — exact match
+    - ``https://*.example.com`` — matches any subdomain
+    - ``http://localhost:*`` — matches any port
+
+    Always compares normalized (lower-cased, no trailing slash) values.
+    """
+    origin = origin.strip().rstrip("/").lower()
+    if not origin:
+        return False
+    for pattern in patterns:
+        pattern = pattern.strip().rstrip("/").lower()
+        if not pattern:
+            continue
+        # Exact match (fast path)
+        if origin == pattern:
+            return True
+        # Wildcard match via fnmatch
+        if "*" in pattern:
+            if fnmatch.fnmatch(origin, pattern):
+                return True
+    return False
+
+
+def _resolve_request_origin(request):
+    """Extract the request origin, falling back to Referer when Origin is absent.
+
+    Browsers always send Origin on cross-origin requests, but some proxies
+    strip it and non-browser HTTP clients (cURL, server-to-server) may send
+    only Referer.  We use whichever is available, preferring Origin.
+    """
+    origin = request.headers.get("Origin", "").strip().rstrip("/")
+    if origin:
+        return origin
+    referer = request.headers.get("Referer", "").strip().rstrip("/")
+    if referer:
+        # Extract origin from Referer URL (scheme + host + optional port)
+        from urllib.parse import urlparse
+        parsed = urlparse(referer)
+        if parsed.scheme and parsed.hostname:
+            origin = f"{parsed.scheme}://{parsed.hostname}"
+            if parsed.port:
+                origin += f":{parsed.port}"
+            return origin
+    return ""
+
+
 class WidgetAccessPermission(BasePermission):
     """
     Public widget access is intentionally not tied to a Django login.
@@ -55,6 +106,11 @@ class WidgetAccessPermission(BasePermission):
     restrict browser origins. The key is not a secret; provider credentials
     must never be shipped to the browser. The key and origins are editable
     from the admin panel and fall back to environment variables.
+
+    Security layers:
+    1. Widget public key (X-Widget-Key header) — installation identifier.
+    2. Origin validation with wildcard support — domain binding.
+    3. Referer fallback for non-browser clients.
     """
 
     message = "Widget access is not authorized."
@@ -62,14 +118,21 @@ class WidgetAccessPermission(BasePermission):
     def has_permission(self, request, view):
         configured_key, allowed_origins = get_widget_access_config()
         supplied_key = request.headers.get("X-Widget-Key", "")
+
+        # Enforce key requirement in production
         if getattr(settings, "WIDGET_REQUIRE_KEY", False) and not configured_key:
             return False
+
+        # Constant-time key comparison
         if configured_key and not hmac.compare_digest(
             str(supplied_key),
             str(configured_key),
         ):
             return False
-        origin = request.headers.get("Origin", "").strip().rstrip("/")
-        if origin and allowed_origins and origin not in allowed_origins:
+
+        # Origin/Referer validation with wildcard matching
+        origin = _resolve_request_origin(request)
+        if origin and allowed_origins and not _origin_matches(origin, allowed_origins):
             return False
+
         return True

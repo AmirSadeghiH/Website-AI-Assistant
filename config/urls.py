@@ -10,7 +10,7 @@ urlpatterns = [
     path('admin/', admin_site.urls),
     path('api/', include("chat.urls")),
     path('demo/', RedirectView.as_view(url='/static/demo.html', permanent=False)),
-    path('', RedirectView.as_view(url='/static/demo.html', permanent=False)),
+    path('', RedirectView.as_view(url='/static/landing.html', permanent=False)),
 ]
 
 if settings.DEBUG:

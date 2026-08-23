@@ -380,7 +380,8 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 
 ## عملکرد و مقیاس‌پذیری
 
-طراحی‌شده برای **۲۰۰+ کاربر هم‌زمان** روی یک سرور:
+ظرفیت نهایی باید با provider واقعی و benchmark staging اندازه‌گیری شود؛
+عدد ثابت «کاربر هم‌زمان» بدون دانستن latency و rate-limit سرویس LLM قابل تضمین نیست.
 
 1. **محدودیت همزمانی LLM (semaphore):** در هر process حداکثر
    `RAG_MAX_CONCURRENT` (پیش‌فرض ۸) فراخوانی هم‌زمان به LLM. درخواست‌های
@@ -397,9 +398,9 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 5. **ایندکس‌های دیتابیس:** `Message (conversation, created_at)` و
    `AnalyticsEvent (event_type, created_at)`؛ تاریخچه‌ی برگشتی به ۱۰۰ پیام
    آخر محدود شده است.
-6. **پیکربندی gunicorn:** `4 worker × 24 thread` پیشنهادی در
-   `gunicorn.conf.py` → ۹۶ اسلات هم‌زمان؛ FAISS در هر worker یک نسخه دارد،
-   پس workerها را فقط با هسته‌های بیشتر زیاد کنید.
+6. **پیکربندی gunicorn:** مقدار پیش‌فرض محافظه‌کارانه‌ی worker/thread در
+   `gunicorn.conf.py` قرار دارد؛ FAISS در هر worker یک نسخه دارد، پس افزایش worker
+   مستقیماً RAM را بالا می‌برد و باید با benchmark انجام شود.
 7. **بدون بار سنگین اضافی:** `sentence-transformers`/torch فقط در حالت
    embedding محلی lazy-import می‌شوند؛ در حالت API هیچ مدل محلی در حافظه
    workerها نیست.
@@ -433,6 +434,11 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 | `WIDGET_RATE` / `WIDGET_EVENTS_RATE` / `WIDGET_FEEDBACK_RATE` | 30/minute / 120/minute / 60/minute | سقف نرخ بر اساس IP |
 | `RAG_MAX_CONCURRENT` | 8 | حداکثر LLM هم‌زمان در هر process |
 | `RAG_RESPONSE_CACHE_SECONDS` | 60 | مدت کش پاسخ‌های تکراری |
+| `RAG_SEMANTIC_CACHE_SECONDS` / `RAG_SEMANTIC_CACHE_SIMILARITY` | 180 / 0.975 | کش معنایی پرسش‌های نزدیک؛ فقط برای سؤال بدون history |
+| `RAG_INDEX_TYPE` | auto | Flat برای corpus کوچک و HNSW برای corpus بزرگ |
+| `LLM_MAX_ESTIMATED_TOKENS_PER_MINUTE` | 20000 | سقف تخمینی توکن LLM در دقیقه |
+| `LLM_MAX_ESTIMATED_TOKENS_PER_CLIENT_MINUTE` | 4000 | سقف تخمینی هر IP/بازدیدکننده در دقیقه |
+| `WIDGET_REQUIRE_ORIGIN` | True در Production | الزام دامنه‌ی allowlist شده برای درخواست‌های widget |
 | `DB_NAME` و… | — | در صورت تنظیم DB_NAME از PostgreSQL استفاده می‌شود |
 | `CACHE_BACKEND` / `CACHE_LOCATION` | LocMem / ai-support-cache | در Production Redis |
 | `CORS_ALLOW_ALL_ORIGINS` / `CORS_ALLOWED_ORIGINS` | False در Production | CORS برای API ویجت |
@@ -449,10 +455,12 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-۳۰ تست: endpointهای API، احراز هویت کلید/origin (از env و پنل)، توکن
+۴۹ تست: endpointهای API، احراز هویت کلید/origin (از env و پنل)، توکن
 مکالمه، CORS و preflight دامنه‌های پنل، محدودیت حجم بدنه و chunked،
 رمزنگاری کلیدها، جریان ProviderSettings به سرویس RAG، جلوگیری از ZIP
-bomb / XML bomb، sniff فایل، corpus خالی و پنل ادمین.
+bomb / XML bomb، sniff فایل، corpus خالی و پنل ادمین. پوشه‌ی مستقل
+`tests/` همچنین تست unit، integration، penetration و شبیه‌سازی ۱۰۰۰ کاربر
+هم‌زمان را دارد.
 
 ---
 

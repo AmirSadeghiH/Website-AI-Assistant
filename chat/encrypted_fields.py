@@ -8,6 +8,7 @@ stored values undecryptable; keep a backup of SECRET_KEY if you ever rotate it.
 import base64
 import hashlib
 import logging
+import os
 
 from cryptography.fernet import Fernet, InvalidToken
 from django.conf import settings
@@ -20,10 +21,21 @@ _KEY_CACHE = {}
 _PBKDF2_ITERATIONS = 200_000
 
 
-def _fernet() -> Fernet:
-    key = _KEY_CACHE.get("key")
-    if key is None:
-        secret = str(settings.SECRET_KEY).encode("utf-8")
+def _encryption_secrets():
+    values = [
+        os.getenv("FIELD_ENCRYPTION_KEY", ""),
+        os.getenv("FIELD_ENCRYPTION_KEY_FALLBACK", ""),
+        str(settings.SECRET_KEY),
+    ]
+    return tuple(value.encode("utf-8") for value in values if value)
+
+
+def _fernet_keys():
+    cached = _KEY_CACHE.get("keys")
+    if cached is not None:
+        return cached
+    keys = []
+    for secret in _encryption_secrets():
         derived = hashlib.pbkdf2_hmac(
             "sha256",
             secret,
@@ -32,8 +44,14 @@ def _fernet() -> Fernet:
             dklen=32,
         )
         key = base64.urlsafe_b64encode(derived)
-        _KEY_CACHE["key"] = key
-    return Fernet(key)
+        if key not in keys:
+            keys.append(key)
+    _KEY_CACHE["keys"] = tuple(keys)
+    return tuple(keys)
+
+
+def _fernet() -> Fernet:
+    return Fernet(_fernet_keys()[0])
 
 
 class EncryptedCharField(models.CharField):
@@ -57,21 +75,25 @@ class EncryptedCharField(models.CharField):
             return ""
         if not value.startswith(_PREFIX):
             return value
-        try:
-            token = value[len(_PREFIX):]
-            return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
-        except (InvalidToken, ValueError) as exc:
-            logger.error("Could not decrypt provider field: %s", exc)
-            return ""
+        token = value[len(_PREFIX):].encode("ascii")
+        for key in _fernet_keys():
+            try:
+                return Fernet(key).decrypt(token).decode("utf-8")
+            except (InvalidToken, ValueError):
+                continue
+        logger.error("Could not decrypt provider field with configured keys.")
+        return ""
 
     def to_python(self, value):
         if value in (None, ""):
             return ""
         if not value.startswith(_PREFIX):
             return value
-        try:
-            token = value[len(_PREFIX):]
-            return _fernet().decrypt(token.encode("ascii")).decode("utf-8")
-        except (InvalidToken, ValueError) as exc:
-            logger.error("Could not decrypt provider field: %s", exc)
-            return ""
+        token = value[len(_PREFIX):].encode("ascii")
+        for key in _fernet_keys():
+            try:
+                return Fernet(key).decrypt(token).decode("utf-8")
+            except (InvalidToken, ValueError):
+                continue
+        logger.error("Could not decrypt provider field with configured keys.")
+        return ""

@@ -13,12 +13,11 @@ from django.test import TestCase
 
 from .admin import DocumentAdminForm, ProviderSettingsForm
 from .document_pipeline import extract_docx, sniff_file_type
-from .middleware import ApiRequestSizeLimitMiddleware
+from .middleware import ApiRequestSizeLimitMiddleware, RequestMonitoringMiddleware
 from .models import (
+    AdminNotification,
     AnalyticsEvent,
-    Conversation,
     Document,
-    Message,
     ProviderSettings,
     WidgetConfig,
 )
@@ -36,7 +35,7 @@ class ChatEndpointTests(TestCase):
         )
 
     @patch("chat.views.get_rag_service")
-    def test_chat_returns_rag_answer_and_persists_messages(self, get_rag_service):
+    def test_chat_returns_rag_answer(self, get_rag_service):
         get_rag_service.return_value.ask.return_value = "پاسخ آزمایشی"
 
         response = self.client.post(
@@ -49,16 +48,11 @@ class ChatEndpointTests(TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["answer"], "پاسخ آزمایشی")
-        self.assertIsNotNone(payload["conversation_id"])
-        self.assertIsNotNone(payload["message_id"])
-        self.assertEqual(Conversation.objects.count(), 1)
-        self.assertEqual(Message.objects.filter(role="user").count(), 1)
-        self.assertEqual(Message.objects.filter(role="assistant").count(), 1)
+        self.assertEqual(response.headers.get("Cache-Control"), "no-store")
+        # Should NOT have conversation_id or message_id
+        self.assertNotIn("conversation_id", payload)
+        self.assertNotIn("message_id", payload)
         get_rag_service.return_value.ask.assert_called_once()
-        self.assertEqual(
-            response.headers.get("Access-Control-Allow-Origin"),
-            "*",
-        )
 
     def test_chat_rejects_invalid_payloads(self):
         cases = (
@@ -66,7 +60,6 @@ class ChatEndpointTests(TestCase):
             (b"[]", "invalid_payload", 400),
             (b'{"message": 123}', "invalid_message", 400),
             (b'{"message": "   "}', "message_required", 400),
-            ('{"message": "سلام", "history": {}}'.encode(), "invalid_history", 400),
         )
 
         for body, error_code, status_code in cases:
@@ -141,27 +134,6 @@ class ChatEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(response.json()["answer"].strip())
-        self.assertEqual(response.headers["Cache-Control"], "no-store")
-
-    @patch("chat.views.get_rag_service")
-    def test_history_is_limited_to_100_messages(self, get_rag_service):
-        get_rag_service.return_value.ask.return_value = "پاسخ آزمایشی"
-        conversation = Conversation.objects.create(external_id="long-conv")
-        for index in range(120):
-            Message.objects.create(
-                conversation=conversation,
-                role="user" if index % 2 == 0 else "assistant",
-                content=f"message-{index}",
-            )
-
-        response = self.client.get("/api/history/?conversation_id=long-conv")
-
-        self.assertEqual(response.status_code, 200)
-        messages = response.json()["messages"]
-        self.assertEqual(len(messages), 100)
-        # Oldest retained message is the 20th; the newest is the last one.
-        self.assertEqual(messages[0]["content"], "message-20")
-        self.assertEqual(messages[-1]["content"], "message-119")
 
     def test_api_body_size_middleware(self):
         factory = RequestFactory()
@@ -289,54 +261,18 @@ class ChatEndpointTests(TestCase):
             os.environ.pop("LLM_MODEL", None)
             os.environ.pop("EMBEDDING_MODEL", None)
 
-    @patch("chat.views.get_rag_service")
-    def test_widget_config_history_and_feedback(self, get_rag_service):
-        get_rag_service.return_value.ask.return_value = "پاسخ آزمایشی"
-
+    def test_widget_config_endpoint(self):
         config_response = self.client.get("/api/widget-config/")
         self.assertEqual(config_response.status_code, 200)
         self.assertEqual(config_response.json()["business_name"], "Demo business")
         self.assertEqual(config_response.json()["suggestions"], self.config.suggestions)
-        self.assertEqual(config_response.json()["panel_width"], 380)
-        self.assertEqual(config_response.json()["mobile_fullscreen"], True)
+        self.assertEqual(config_response.json()["panel_width"], 400)
+        self.assertEqual(config_response.json()["show_timestamp"], True)
 
-        chat_response = self.client.post(
-            "/api/chat/",
-            data={"conversation_id": "conv-test", "message": "سلام"},
-            content_type="application/json",
-        )
-        self.assertEqual(chat_response.status_code, 200)
-        payload = chat_response.json()
-
-        history_response = self.client.get(
-            "/api/history/?conversation_id=conv-test",
-        )
-        self.assertEqual(history_response.status_code, 200)
-        self.assertEqual(len(history_response.json()["messages"]), 2)
-
-        feedback_response = self.client.post(
-            "/api/feedback/",
-            data={
-                "conversation_id": "conv-test",
-                "message_id": payload["message_id"],
-                "feedback": "helpful",
-            },
-            content_type="application/json",
-        )
-        self.assertEqual(feedback_response.status_code, 200)
-        self.assertEqual(
-            Message.objects.get(pk=payload["message_id"]).feedback,
-            "helpful",
-        )
-        self.assertTrue(
-            AnalyticsEvent.objects.filter(event_type="answer_helpful").exists(),
-        )
-
-    def test_events_create_conversation_for_widget_lifecycle(self):
+    def test_events_create_analytics(self):
         response = self.client.post(
             "/api/events/",
             data={
-                "conversation_id": "event-conv",
                 "event_type": "widget_loaded",
                 "metadata": {"version": "beta"},
             },
@@ -345,10 +281,7 @@ class ChatEndpointTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertTrue(
-            AnalyticsEvent.objects.filter(
-                event_type="widget_loaded",
-                conversation__external_id="event-conv",
-            ).exists(),
+            AnalyticsEvent.objects.filter(event_type="widget_loaded").exists(),
         )
 
     def test_widget_config_is_singleton(self):
@@ -360,36 +293,21 @@ class ChatEndpointTests(TestCase):
         WIDGET_PUBLIC_KEY="test-public-key",
         WIDGET_ALLOWED_ORIGINS=("https://carsanj.ir",),
     )
-    @patch("chat.views.get_rag_service")
-    def test_widget_key_and_conversation_token_protect_history(self, get_rag_service):
-        get_rag_service.return_value.ask.return_value = "پاسخ امن"
+    def test_widget_key_enforces_access(self):
         headers = {
             "HTTP_X_WIDGET_KEY": "test-public-key",
             "HTTP_ORIGIN": "https://carsanj.ir",
         }
 
-        event = self.client.post(
-            "/api/events/",
-            data={"conversation_id": "secure-conv", "event_type": "widget_loaded"},
-            content_type="application/json",
-            **headers,
-        )
-        self.assertEqual(event.status_code, 200)
-        token = event.json()["conversation_token"]
+        allowed = self.client.get("/api/widget-config/", **headers)
+        self.assertEqual(allowed.status_code, 200)
 
         denied = self.client.get(
-            "/api/history/?conversation_id=secure-conv",
-            **headers,
-        )
-        self.assertEqual(denied.status_code, 403)
-
-        allowed = self.client.get(
-            "/api/history/?conversation_id=secure-conv",
-            HTTP_X_WIDGET_KEY="test-public-key",
-            HTTP_X_CONVERSATION_TOKEN=token,
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wrong",
             HTTP_ORIGIN="https://carsanj.ir",
         )
-        self.assertEqual(allowed.status_code, 200)
+        self.assertEqual(denied.status_code, 403)
 
     @override_settings(
         WIDGET_PUBLIC_KEY="",
@@ -467,51 +385,6 @@ class ChatEndpointTests(TestCase):
             response.headers.get("Access-Control-Allow-Origin"),
             "https://panel.example",
         )
-        self.assertIn(
-            "x-widget-key",
-            response.headers.get("Access-Control-Allow-Headers", ""),
-        )
-        self.assertIn(
-            "POST",
-            response.headers.get("Access-Control-Allow-Methods", ""),
-        )
-
-    @override_settings(
-        WIDGET_PUBLIC_KEY="",
-        WIDGET_ALLOWED_ORIGINS=(),
-    )
-    def test_conversation_tokens_enforced_with_panel_key(self):
-        ProviderSettings.objects.create(
-            widget_public_key="panel-key",
-            widget_allowed_origins="https://panel.example",
-        )
-        headers = {
-            "HTTP_X_WIDGET_KEY": "panel-key",
-            "HTTP_ORIGIN": "https://panel.example",
-        }
-
-        event = self.client.post(
-            "/api/events/",
-            data={"conversation_id": "panel-conv", "event_type": "widget_loaded"},
-            content_type="application/json",
-            **headers,
-        )
-        self.assertEqual(event.status_code, 200)
-        token = event.json()["conversation_token"]
-
-        denied = self.client.get(
-            "/api/history/?conversation_id=panel-conv",
-            **headers,
-        )
-        self.assertEqual(denied.status_code, 403)
-
-        allowed = self.client.get(
-            "/api/history/?conversation_id=panel-conv",
-            HTTP_X_WIDGET_KEY="panel-key",
-            HTTP_X_CONVERSATION_TOKEN=token,
-            HTTP_ORIGIN="https://panel.example",
-        )
-        self.assertEqual(allowed.status_code, 200)
 
     def test_widget_access_config_falls_back_to_env(self):
         from .api_permissions import get_widget_access_config
@@ -544,6 +417,47 @@ class ChatEndpointTests(TestCase):
         self.assertEqual(wrong_origin.status_code, 403)
 
 
+class MonitoringTests(TestCase):
+    def test_request_monitoring_creates_notification_on_errors(self):
+        factory = RequestFactory()
+
+        def error_view(request):
+            from django.http import HttpResponseServerError
+            return HttpResponseServerError()
+
+        middleware = RequestMonitoringMiddleware(error_view)
+
+        # Simulate 11 requests in the same minute window
+        for i in range(11):
+            request = factory.post("/api/test/")
+            middleware(request)
+
+        self.assertTrue(
+            AdminNotification.objects.filter(
+                title="Error rate spike detected",
+                severity="critical",
+            ).exists()
+        )
+
+    def test_mark_notifications_read_via_admin(self):
+        AdminNotification.objects.create(
+            title="Test alert",
+            message="Something happened",
+            severity="warning",
+        )
+        self.assertEqual(AdminNotification.objects.filter(is_read=False).count(), 1)
+
+        user = get_user_model().objects.create_superuser(
+            username="admin",
+            email="admin@example.com",
+            password="safe-password-123",
+        )
+        self.client.force_login(user)
+
+        response = self.client.post("/admin/notifications-mark-read/")
+        self.assertIn(response.status_code, (200, 302))
+        self.assertEqual(AdminNotification.objects.filter(is_read=False).count(), 0)
+
 class SupportAdminTests(TestCase):
     def test_custom_admin_dashboard_renders(self):
         user = get_user_model().objects.create_superuser(
@@ -560,7 +474,7 @@ class SupportAdminTests(TestCase):
         self.assertContains(response, "CONTROL ROOM")
         self.assertContains(response, "Widget settings")
         self.assertContains(response, "Knowledge documents")
-        self.assertContains(response, "کلیدها و مدل‌های AI")
+        self.assertContains(response, "نوتیفیکیشن‌ها")
 
         form_response = self.client.get("/admin/chat/document/add/")
         self.assertEqual(form_response.status_code, 200)
@@ -733,7 +647,7 @@ class SupportAdminTests(TestCase):
         response = self.client.post(
             "/admin/chat/document/",
             {
-                "action": "process_documents",
+                "action": "process_documents_action",
                 "_selected_action": [str(document.pk)],
                 "index": 0,
                 "select_across": 0,
@@ -743,3 +657,443 @@ class SupportAdminTests(TestCase):
         document.refresh_from_db()
         self.assertEqual(document.status, "queued")
         popen.assert_called_once()
+
+
+class FeedbackEndpointTests(TestCase):
+    """Tests for the /api/feedback/ endpoint."""
+
+    def setUp(self):
+        cache.clear()
+        WidgetConfig.objects.create(business_name="Test")
+
+    def test_feedback_thumbs_up_is_persisted(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={
+                "helpful": True,
+                "question": "چطور حساب باز کنم؟",
+                "answer_preview": "برای باز کردن حساب...",
+                "session_id": "abc-123",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        event = AnalyticsEvent.objects.filter(event_type="answer_helpful").last()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.metadata["question"], "چطور حساب باز کنم؟")
+        self.assertEqual(event.metadata["session_id"], "abc-123")
+
+    def test_feedback_thumbs_down_is_persisted(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={"helpful": False, "question": "سؤال بد"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(AnalyticsEvent.objects.filter(event_type="answer_not_helpful").exists())
+
+    def test_feedback_with_comment(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={
+                "helpful": True,
+                "question": "test",
+                "comment": "عالی بود!",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        event = AnalyticsEvent.objects.filter(event_type="answer_helpful").last()
+        self.assertEqual(event.metadata["comment"], "عالی بود!")
+
+    def test_feedback_rejects_missing_helpful_field(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_feedback_rejects_invalid_payload(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data="not-json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class OriginMatchingTests(TestCase):
+    """Test wildcard and exact origin matching."""
+
+    def test_exact_match(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://example.com", ["https://example.com"]))
+
+    def test_exact_mismatch(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://example.com", ["https://other.com"]))
+
+    def test_wildcard_subdomain_match(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://shop.example.com", ["https://*.example.com"]))
+
+    def test_wildcard_subdomain_mismatch(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://evil-example.com", ["https://*.example.com"]))
+
+    def test_wildcard_does_not_match_bare_domain(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://example.com", ["https://*.example.com"]))
+
+    def test_case_insensitive(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://A.Example.COM", ["https://a.example.com"]))
+
+    def test_empty_origin_fails(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("", ["https://example.com"]))
+
+    def test_multiple_patterns(self):
+        from .api_permissions import _origin_matches
+        patterns = ["https://other.com", "https://*.example.com"]
+        self.assertTrue(_origin_matches("https://shop.example.com", patterns))
+        self.assertFalse(_origin_matches("https://evil.com", patterns))
+
+    @override_settings(
+        WIDGET_PUBLIC_KEY="wk",
+        WIDGET_ALLOWED_ORIGINS=("https://*.example.com",),
+    )
+    def test_wildcard_origin_allows_subdomains_via_api(self):
+        allowed = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_ORIGIN="https://shop.example.com",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+        denied = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_ORIGIN="https://evil.attacker.com",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    @override_settings(
+        WIDGET_PUBLIC_KEY="wk",
+        WIDGET_ALLOWED_ORIGINS=("https://example.com",),
+    )
+    def test_referer_fallback_when_origin_missing(self):
+        """When Origin header is absent, Referer is used as fallback."""
+        allowed = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_REFERER="https://example.com/page",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+        denied = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_REFERER="https://evil.com/page",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+
+@override_settings(DEBUG=True)
+class MediaDocumentProtectionTests(TestCase):
+    """Test that uploaded source documents cannot be accessed directly."""
+
+    def test_media_documents_returns_404(self):
+        from .middleware import MediaDocumentProtectionMiddleware
+
+        factory = RequestFactory()
+        ok_view = lambda request: HttpResponse("ok")
+        middleware = MediaDocumentProtectionMiddleware(ok_view)
+
+        request = factory.get("/media/documents/2026/08/guide.pdf")
+        from django.http import Http404
+        with self.assertRaises(Http404):
+            middleware(request)
+
+    def test_other_media_paths_pass_through(self):
+        from .middleware import MediaDocumentProtectionMiddleware
+
+        factory = RequestFactory()
+        ok_view = lambda request: HttpResponse("ok")
+        middleware = MediaDocumentProtectionMiddleware(ok_view)
+
+        request = factory.get("/media/avatars/user.png")
+        response = middleware(request)
+        self.assertEqual(response.status_code, 200)
+
+
+class AdminAnalyticsApiTests(TestCase):
+    """Tests for the analytics and FAQ leaderboard API endpoints."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="analyst",
+            email="a@b.com",
+            password="pass-1234",
+        )
+        self.client.force_login(self.user)
+
+    def test_analytics_data_requires_staff(self):
+        self.client.logout()
+        response = self.client.get("/admin/analytics-data/")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_analytics_data_returns_structure(self):
+        AnalyticsEvent.objects.create(event_type="assistant_answered", metadata={"latency_ms": 120})
+        AnalyticsEvent.objects.create(event_type="assistant_answered", metadata={"latency_ms": 200})
+        AnalyticsEvent.objects.create(event_type="error_occurred")
+        AnalyticsEvent.objects.create(event_type="widget_loaded")
+        AnalyticsEvent.objects.create(event_type="answer_helpful", metadata={"question": "سؤال تست"})
+
+        response = self.client.get("/admin/analytics-data/?period=day&days=30")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("messages", data)
+        self.assertIn("errors", data)
+        self.assertIn("loads", data)
+        self.assertIn("helpful", data)
+        self.assertIn("total_messages", data)
+        self.assertEqual(data["total_messages"], 2)
+        self.assertEqual(data["total_errors"], 1)
+        self.assertEqual(data["helpful"], 1)
+
+    def test_faq_leaderboard_requires_staff(self):
+        self.client.logout()
+        response = self.client.get("/admin/faq-leaderboard/")
+        self.assertIn(response.status_code, (302, 403))
+
+
+class FeedbackEndpointTests(TestCase):
+    """Tests for the /api/feedback/ endpoint."""
+
+    def setUp(self):
+        cache.clear()
+        WidgetConfig.objects.create(business_name="Test")
+
+    def test_feedback_thumbs_up_is_persisted(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={
+                "helpful": True,
+                "question": "some question",
+                "answer_preview": "some answer",
+                "session_id": "abc-123",
+            },
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])
+        event = AnalyticsEvent.objects.filter(event_type="answer_helpful").last()
+        self.assertIsNotNone(event)
+        self.assertEqual(event.metadata["question"], "some question")
+        self.assertEqual(event.metadata["session_id"], "abc-123")
+
+    def test_feedback_thumbs_down_is_persisted(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={"helpful": False, "question": "bad question"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(AnalyticsEvent.objects.filter(event_type="answer_not_helpful").exists())
+
+    def test_feedback_with_comment(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={"helpful": True, "question": "test", "comment": "great!"},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 200)
+        event = AnalyticsEvent.objects.filter(event_type="answer_helpful").last()
+        self.assertEqual(event.metadata["comment"], "great!")
+
+    def test_feedback_rejects_missing_helpful_field(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data={},
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_feedback_rejects_invalid_payload(self):
+        response = self.client.post(
+            "/api/feedback/",
+            data="not-json",
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+class OriginMatchingTests(TestCase):
+    """Test wildcard and exact origin matching."""
+
+    def test_exact_match(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://example.com", ["https://example.com"]))
+
+    def test_exact_mismatch(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://example.com", ["https://other.com"]))
+
+    def test_wildcard_subdomain_match(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://shop.example.com", ["https://*.example.com"]))
+
+    def test_wildcard_subdomain_mismatch(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://evil-example.com", ["https://*.example.com"]))
+
+    def test_wildcard_does_not_match_bare_domain(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("https://example.com", ["https://*.example.com"]))
+
+    def test_case_insensitive(self):
+        from .api_permissions import _origin_matches
+        self.assertTrue(_origin_matches("https://A.Example.COM", ["https://a.example.com"]))
+
+    def test_empty_origin_fails(self):
+        from .api_permissions import _origin_matches
+        self.assertFalse(_origin_matches("", ["https://example.com"]))
+
+    def test_multiple_patterns(self):
+        from .api_permissions import _origin_matches
+        patterns = ["https://other.com", "https://*.example.com"]
+        self.assertTrue(_origin_matches("https://shop.example.com", patterns))
+        self.assertFalse(_origin_matches("https://evil.com", patterns))
+
+    @override_settings(
+        WIDGET_PUBLIC_KEY="wk",
+        WIDGET_ALLOWED_ORIGINS=("https://*.example.com",),
+    )
+    def test_wildcard_origin_allows_subdomains_via_api(self):
+        allowed = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_ORIGIN="https://shop.example.com",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+        denied = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_ORIGIN="https://evil.attacker.com",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+    @override_settings(
+        WIDGET_PUBLIC_KEY="wk",
+        WIDGET_ALLOWED_ORIGINS=("https://example.com",),
+    )
+    def test_referer_fallback_when_origin_missing(self):
+        """When Origin header is absent, Referer is used as fallback."""
+        allowed = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_REFERER="https://example.com/page",
+        )
+        self.assertEqual(allowed.status_code, 200)
+
+        denied = self.client.get(
+            "/api/widget-config/",
+            HTTP_X_WIDGET_KEY="wk",
+            HTTP_REFERER="https://evil.com/page",
+        )
+        self.assertEqual(denied.status_code, 403)
+
+
+@override_settings(DEBUG=True)
+class MediaDocumentProtectionTests(TestCase):
+    """Test that uploaded source documents cannot be accessed directly."""
+
+    def test_media_documents_returns_404(self):
+        from .middleware import MediaDocumentProtectionMiddleware
+        from django.http import Http404
+
+        factory = RequestFactory()
+        ok_view = lambda request: HttpResponse("ok")
+        middleware = MediaDocumentProtectionMiddleware(ok_view)
+
+        request = factory.get("/media/documents/2026/08/guide.pdf")
+        with self.assertRaises(Http404):
+            middleware(request)
+
+    def test_other_media_paths_pass_through(self):
+        from .middleware import MediaDocumentProtectionMiddleware
+
+        factory = RequestFactory()
+        ok_view = lambda request: HttpResponse("ok")
+        middleware = MediaDocumentProtectionMiddleware(ok_view)
+
+        request = factory.get("/media/avatars/user.png")
+        response = middleware(request)
+        self.assertEqual(response.status_code, 200)
+
+
+class AdminAnalyticsApiTests(TestCase):
+    """Tests for the analytics and FAQ leaderboard API endpoints."""
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_superuser(
+            username="analyst",
+            email="a@b.com",
+            password="pass-1234",
+        )
+        self.client.force_login(self.user)
+
+    def test_analytics_data_requires_staff(self):
+        self.client.logout()
+        response = self.client.get("/admin/analytics-data/")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_analytics_data_returns_structure(self):
+        AnalyticsEvent.objects.create(event_type="assistant_answered", metadata={"latency_ms": 120})
+        AnalyticsEvent.objects.create(event_type="assistant_answered", metadata={"latency_ms": 200})
+        AnalyticsEvent.objects.create(event_type="error_occurred")
+        AnalyticsEvent.objects.create(event_type="widget_loaded")
+        AnalyticsEvent.objects.create(event_type="answer_helpful", metadata={"question": "test question"})
+
+        response = self.client.get("/admin/analytics-data/?period=day&days=30")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("messages", data)
+        self.assertIn("errors", data)
+        self.assertIn("loads", data)
+        self.assertIn("helpful", data)
+        self.assertIn("total_messages", data)
+        self.assertEqual(data["total_messages"], 2)
+        self.assertEqual(data["total_errors"], 1)
+        self.assertEqual(data["helpful"], 1)
+
+    def test_faq_leaderboard_requires_staff(self):
+        self.client.logout()
+        response = self.client.get("/admin/faq-leaderboard/")
+        self.assertIn(response.status_code, (302, 403))
+
+    def test_faq_leaderboard_returns_questions(self):
+        AnalyticsEvent.objects.create(
+            event_type="answer_helpful",
+            metadata={"question": "how to open account"},
+        )
+        AnalyticsEvent.objects.create(
+            event_type="answer_not_helpful",
+            metadata={"question": "how to open account"},
+        )
+        AnalyticsEvent.objects.create(
+            event_type="answer_helpful",
+            metadata={"question": "loan conditions"},
+        )
+
+        response = self.client.get("/admin/faq-leaderboard/?days=30&limit=10")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn("questions", data)
+        self.assertEqual(len(data["questions"]), 2)
+        self.assertEqual(data["questions"][0]["question"], "how to open account")
+        self.assertEqual(data["questions"][0]["count"], 2)

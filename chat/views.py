@@ -1,16 +1,12 @@
-import hashlib
-import hmac
 import json
 import logging
 import threading
-import uuid
 from pathlib import Path
 from time import perf_counter
 
 from django.conf import settings
 from django.core.cache import cache
 from django.db import IntegrityError
-from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ParseError, ValidationError
 from rest_framework.decorators import (
@@ -21,21 +17,17 @@ from rest_framework.decorators import (
 )
 from rest_framework.response import Response
 
-from .api_permissions import WidgetAccessPermission, get_widget_access_config
+from .api_permissions import WidgetAccessPermission, _resolve_request_origin
 from .api_throttles import (
     WidgetEventsThrottle,
     WidgetFeedbackThrottle,
+    WidgetKeyRateThrottle,
     WidgetRateThrottle,
 )
-from .models import AnalyticsEvent, Conversation, Message, ProviderSettings, WidgetConfig
+from .models import AdminNotification, AnalyticsEvent, ProviderSettings, WidgetConfig
 from .services import CorpusConfigError
 from rag.retriever import EmbeddingDimensionMismatchError
-from .serializers import (
-    ChatRequestSerializer,
-    EventSerializer,
-    FeedbackSerializer,
-    HistoryQuerySerializer,
-)
+from .serializers import ChatRequestSerializer, EventSerializer, FeedbackSerializer
 
 logger = logging.getLogger(__name__)
 _rag_service = None
@@ -97,36 +89,11 @@ def _validate(serializer):
                 {"error": "invalid_message", "message": "The message is invalid."},
                 status=400,
             )
-        if isinstance(detail, dict) and "history" in detail:
-            return None, Response(
-                {"error": "invalid_history", "message": "History must be a JSON list."},
-                status=400,
-            )
         return None, Response(
             {"error": "invalid_payload", "message": "Invalid request payload."},
             status=400,
         )
     return serializer.validated_data, None
-
-
-def _conversation_token(external_id):
-    return hmac.new(
-        str(settings.SECRET_KEY).encode("utf-8"),
-        external_id.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
-
-
-def _valid_conversation_token(external_id, token):
-    return bool(token) and hmac.compare_digest(
-        _conversation_token(external_id),
-        str(token),
-    )
-
-
-def _widget_key_configured():
-    """True when an installation key is set (admin panel or environment)."""
-    return bool(get_widget_access_config()[0])
 
 
 def get_widget_config():
@@ -143,7 +110,11 @@ def get_widget_config():
 
 
 def widget_config_payload(config):
-    return {
+    # Resolve icon URL
+    icon_url = ""
+    if config.icon_type == "custom" and config.custom_icon_file:
+        icon_url = config.custom_icon_file.url
+    payload = {
         "business_name": config.business_name,
         "website_url": config.website_url,
         "title": config.title,
@@ -151,25 +122,38 @@ def widget_config_payload(config):
         "greeting": config.greeting,
         "primary_color": config.primary_color,
         "secondary_color": config.secondary_color,
+        "accent_color": config.accent_color,
         "header_badge": config.header_badge,
         "bot_avatar_text": config.bot_avatar_text,
         "input_placeholder": config.input_placeholder,
         "theme_mode": config.theme_mode,
+        "dark_mode": config.dark_mode,
+        "bubble_style": config.bubble_style,
         "panel_width": config.panel_width,
         "panel_height": config.panel_height,
         "border_radius": config.border_radius,
         "mobile_fullscreen": config.mobile_fullscreen,
         "logo_url": config.logo_url,
         "font_family": config.font_family,
+        "font_size": config.font_size,
         "position": config.position,
-        "show_history": config.show_history,
-        "allow_feedback": config.allow_feedback,
+        "positionVerticalOffset": config.position_vertical_offset,
+        "positionHorizontalOffset": config.position_horizontal_offset,
+        "iconType": config.icon_type,
+        "defaultIconChoice": config.default_icon_choice,
+        "customIconUrl": icon_url,
+        "showFeedback": config.show_feedback,
         "show_powered_by": config.show_powered_by,
+        "show_timestamp": config.show_timestamp,
+        "show_avatar": config.show_avatar,
+        "enable_sounds": config.enable_sounds,
+        "enable_animations": config.enable_animations,
         "suggestions": config.suggestions or [],
         "faq_url": config.faq_url,
         "privacy_url": config.privacy_url,
         "support_email": config.support_email,
     }
+    return payload
 
 
 CORPUS_ARTIFACTS = (
@@ -203,8 +187,6 @@ def get_rag_service():
                         provider=get_provider_values(),
                     )
             except RuntimeError as exc:
-                # Corpus missing/partial or embedding model changed since the
-                # documents were processed. Surface a clear, actionable error.
                 raise CorpusConfigError(str(exc)) from exc
             _rag_artifact_signature = signature
         else:
@@ -216,53 +198,21 @@ def _get_provider_row():
     return ProviderSettings.objects.first()
 
 
-def find_or_create_conversation(external_id, request, conversation_token=""):
-    external_id = (external_id or "").strip()[:100]
-    if not external_id:
-        external_id = f"conversation_{uuid.uuid4().hex}"
-    conversation = Conversation.objects.filter(external_id=external_id).first()
-    if conversation is not None:
-        if _widget_key_configured() and not _valid_conversation_token(
-            external_id,
-            conversation_token,
-        ):
-            return None, False
-        return conversation, False
-
+def _track_metrics(request, latency_ms=None, error=False):
+    """Record metrics for admin dashboard."""
+    event_type = "error_occurred" if error else "assistant_answered"
+    metadata = {}
+    if latency_ms is not None:
+        metadata["latency_ms"] = latency_ms
+    metadata["origin"] = _resolve_request_origin(request)[:200]
     try:
-        conversation = Conversation.objects.create(
-            external_id=external_id,
-            page_url=request.headers.get("Referer", "")[:1000],
-            referrer=request.headers.get("Origin", "")[:1000],
-            user_agent=request.headers.get("User-Agent", "")[:1000],
+        AnalyticsEvent.objects.create(
+            event_type=event_type,
+            path=request.headers.get("Referer", "")[:1000],
+            metadata=metadata,
         )
-    except IntegrityError:
-        conversation = Conversation.objects.filter(external_id=external_id).first()
-        if conversation is None:
-            raise
-        if _widget_key_configured() and not _valid_conversation_token(
-            external_id,
-            conversation_token,
-        ):
-            return None, False
-        return conversation, False
-    AnalyticsEvent.objects.create(
-        conversation=conversation,
-        event_type="conversation_started",
-        path=request.headers.get("Referer", "")[:1000],
-    )
-    return conversation, True
-
-
-def record_event(event_type, request, conversation=None, metadata=None):
-    if event_type not in EVENT_TYPES:
-        return
-    AnalyticsEvent.objects.create(
-        conversation=conversation,
-        event_type=event_type,
-        path=request.headers.get("Referer", "")[:1000],
-        metadata=metadata or {},
-    )
+    except Exception:
+        logger.warning("Failed to track analytics event", exc_info=True)
 
 
 @api_view(["GET"])
@@ -283,7 +233,6 @@ def health(request):
     if all(existing):
         checks["corpus"] = "ok"
     elif not any(existing):
-        # A fresh install with no processed documents is a valid empty corpus.
         checks["corpus"] = "ok"
     else:
         checks["corpus"] = "error"
@@ -303,54 +252,17 @@ def health(request):
 @api_view(["GET"])
 @authentication_classes([])
 @permission_classes([WidgetAccessPermission])
-@throttle_classes([WidgetRateThrottle])
+@throttle_classes([WidgetRateThrottle, WidgetKeyRateThrottle])
 def widget_config(request):
     response = Response(widget_config_payload(get_widget_config()))
     response["Cache-Control"] = "public, max-age=10, stale-while-revalidate=60"
     return response
 
 
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([WidgetAccessPermission])
-@throttle_classes([WidgetRateThrottle])
-def conversation_history(request):
-    serializer = HistoryQuerySerializer(data=request.query_params)
-    serializer.is_valid(raise_exception=True)
-    external_id = serializer.validated_data["conversation_id"]
-    if not external_id:
-        return Response({"messages": []})
-    conversation = Conversation.objects.filter(external_id=external_id).first()
-    if conversation is None:
-        return Response({"messages": []})
-    if _widget_key_configured() and not _valid_conversation_token(
-        external_id,
-        request.headers.get("X-Conversation-Token", ""),
-    ):
-        return Response({"detail": "Conversation access denied."}, status=403)
-    messages = list(
-        conversation.messages.filter(role__in=("user", "assistant"))
-        .order_by("-created_at", "-id")[:100]
-        .values("id", "role", "content", "feedback", "created_at")
-    )
-    messages.reverse()
-    for item in messages:
-        item["created_at"] = item["created_at"].isoformat()
-    response = Response(
-        {
-            "conversation_id": conversation.external_id,
-            "messages": messages,
-            "is_archived": conversation.is_archived,
-        }
-    )
-    response["Cache-Control"] = "no-store"
-    return response
-
-
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([WidgetAccessPermission])
-@throttle_classes([WidgetRateThrottle])
+@throttle_classes([WidgetRateThrottle, WidgetKeyRateThrottle])
 def chat(request):
     raw_data, parse_error = _parse_json(request)
     if parse_error:
@@ -363,41 +275,14 @@ def chat(request):
     data, validation_error = _validate(ChatRequestSerializer(data=raw_data))
     if validation_error:
         return validation_error
-    conversation_token = request.headers.get("X-Conversation-Token", "")
-    conversation, _created = find_or_create_conversation(
-        data.get("conversation_id"),
-        request,
-        conversation_token,
-    )
-    if conversation is None:
-        return Response({"detail": "Conversation access denied."}, status=403)
-
-    history = data.get("history") or list(
-        conversation.messages.order_by("-created_at")[:8].values("role", "content")
-    )[::-1]
-    Message.objects.create(
-        conversation=conversation,
-        role="user",
-        content=data["message"],
-    )
-    record_event(
-        "user_message",
-        request,
-        conversation=conversation,
-        metadata={"message_length": len(data["message"])},
-    )
 
     started_at = perf_counter()
     try:
-        answer = get_rag_service().ask(data["message"], history=history)
+        answer = get_rag_service().ask(data["message"])
     except (CorpusConfigError, EmbeddingDimensionMismatchError) as exc:
         logger.error("Corpus/provider configuration error: %s", exc)
-        record_event(
-            "fallback_triggered",
-            request,
-            conversation=conversation,
-            metadata={"error_type": "corpus_config"},
-        )
+        _track_metrics(request, error=True)
+        _notify_if_needed("corpus_config", str(exc))
         return Response(
             {
                 "error": "corpus_config",
@@ -413,12 +298,8 @@ def chat(request):
                     error_file.write(f"---\n{type(exc).__name__}: {exc}\n")
         except OSError:
             pass
-        record_event(
-            "fallback_triggered",
-            request,
-            conversation=conversation,
-            metadata={"error_type": type(exc).__name__},
-        )
+        _track_metrics(request, error=True)
+        _notify_if_needed(type(exc).__name__, str(exc))
         if getattr(exc, "retry_after", None):
             return Response(
                 {
@@ -440,24 +321,11 @@ def chat(request):
     if not answer:
         answer = "متأسفم، الان نمی‌توانم پاسخ بدهم. لطفاً کمی بعد دوباره تلاش کنید."
     latency_ms = round((perf_counter() - started_at) * 1000)
-    assistant_message = Message.objects.create(
-        conversation=conversation,
-        role="assistant",
-        content=answer,
-        latency_ms=latency_ms,
-    )
-    record_event(
-        "assistant_answered",
-        request,
-        conversation=conversation,
-        metadata={"latency_ms": latency_ms},
-    )
+    _track_metrics(request, latency_ms=latency_ms)
+
     response = Response(
         {
             "answer": answer,
-            "conversation_id": conversation.external_id,
-            "conversation_token": _conversation_token(conversation.external_id),
-            "message_id": assistant_message.id,
         }
     )
     response["Cache-Control"] = "no-store"
@@ -477,65 +345,92 @@ def events(request):
         return validation_error
     if data["event_type"] not in CLIENT_EVENT_TYPES:
         return Response({"error": "event_not_client_writable"}, status=403)
-    conversation, _created = find_or_create_conversation(
-        data.get("conversation_id"),
-        request,
-        request.headers.get("X-Conversation-Token", ""),
-    )
-    if conversation is None:
-        return Response({"detail": "Conversation access denied."}, status=403)
-    record_event(
-        data["event_type"],
-        request,
-        conversation,
-        data.get("metadata") or {},
-    )
-    return Response(
-        {
-            "ok": True,
-            "conversation_id": conversation.external_id,
-            "conversation_token": _conversation_token(conversation.external_id),
-        }
-    )
+    try:
+        AnalyticsEvent.objects.create(
+            event_type=data["event_type"],
+            path=request.headers.get("Referer", "")[:1000],
+            metadata=data.get("metadata") or {},
+        )
+    except Exception:
+        logger.warning("Failed to create analytics event", exc_info=True)
+    return Response({"ok": True})
 
 
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([WidgetAccessPermission])
-@throttle_classes([WidgetFeedbackThrottle])
+@throttle_classes([WidgetFeedbackThrottle, WidgetKeyRateThrottle])
 def feedback(request):
+    """Accept user feedback (thumbs-up/down) with reliable persistence.
+
+    Feedback is written synchronously to the database. If the write fails,
+    the error is logged but the user still receives a success response to
+    avoid a degraded experience (feedback is nice-to-have, not critical).
+    """
     raw_data, parse_error = _parse_json(request)
     if parse_error:
         return parse_error
     data, validation_error = _validate(FeedbackSerializer(data=raw_data))
     if validation_error:
         return validation_error
-    conversation = Conversation.objects.filter(
-        external_id=data["conversation_id"],
-    ).first()
-    if conversation is None:
-        return Response({"error": "conversation_not_found"}, status=404)
-    if _widget_key_configured() and not _valid_conversation_token(
-        data["conversation_id"],
-        request.headers.get("X-Conversation-Token", ""),
-    ):
-        return Response({"detail": "Conversation access denied."}, status=403)
-    message = conversation.messages.filter(
-        id=data["message_id"],
-        role="assistant",
-    ).first()
-    if message is None:
-        return Response({"error": "message_not_found"}, status=404)
-    message.feedback = data["feedback"]
-    message.save(update_fields=("feedback",))
-    record_event(
-        "answer_helpful"
-        if data["feedback"] == "helpful"
-        else "answer_not_helpful",
-        request,
-        conversation,
-        {"message_id": message.id},
+
+    event_type = "answer_helpful" if data["helpful"] else "answer_not_helpful"
+    metadata = {
+        "question": data.get("question", "")[:500],
+        "answer_preview": data.get("answer_preview", "")[:300],
+        "session_id": data.get("session_id", "")[:100],
+    }
+    if data.get("comment"):
+        metadata["comment"] = data["comment"][:500]
+
+    try:
+        AnalyticsEvent.objects.create(
+            event_type=event_type,
+            path=_resolve_request_origin(request)[:1000],
+            metadata=metadata,
+        )
+    except Exception:
+        # Log but don't fail the request — feedback is best-effort
+        logger.warning(
+            "Failed to persist feedback: %s=%s error=%s",
+            event_type,
+            metadata.get("question", "")[:50],
+            exc_info=True,
+        )
+
+    return Response({"ok": True})
+
+
+@api_view(["GET"])
+@authentication_classes([])
+def notifications(request):
+    """Return unread admin notifications."""
+    if not request.user or not request.user.is_staff:
+        return Response({"detail": "Forbidden"}, status=403)
+    unread = AdminNotification.objects.filter(is_read=False)[:20]
+    data = [
+        {
+            "id": n.id,
+            "title": n.title,
+            "message": n.message,
+            "severity": n.severity,
+            "created_at": n.created_at.isoformat(),
+        }
+        for n in unread
+    ]
+    return Response({"notifications": data})
+
+
+def _notify_if_needed(error_type, detail):
+    """Create a notification for critical errors (rate-limited to once per 5 min)."""
+    now = int(perf_counter())
+    notify_key = f"monitor:notify:{error_type}:{now // 300}"
+    if cache.get(notify_key):
+        return
+    cache.set(notify_key, True, timeout=300)
+    severity = "critical" if error_type in ("corpus_config", "capacity_limited") else "warning"
+    AdminNotification.objects.get_or_create(
+        title=f"Chat error: {error_type}",
+        severity=severity,
+        defaults={"message": detail[:500]},
     )
-    response = Response({"ok": True})
-    response["Cache-Control"] = "no-store"
-    return response
