@@ -1,0 +1,45 @@
+{% extends "panel/base.html" %}
+{% block title %}راهنمای راه‌اندازی{% endblock %}
+{% block page_title %}راهنمای راه‌اندازی{% endblock %}
+{% block page_sub %}{{ completed }} از ۶ مرحله تکمیل شده — با چند دقیقه آماده‌ی فروش هستید{% endblock %}
+
+{% block content %}
+  <div class="grid grid-2">
+    <div class="card card-pad">
+      <div class="steps">
+        {% for step in steps %}
+          <div class="step {% if step.done %}done{% endif %}">
+            <div class="step-num">
+              {% if step.done %}
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>
+              {% else %}{{ step.n }}{% endif %}
+            </div>
+            <div class="grow">
+              <div class="step-title">{{ step.title }}</div>
+              <div class="step-desc">{{ step.desc }}</div>
+            </div>
+            {% if step.url %}<a class="btn {% if step.done %}btn-ghost{% else %}btn-primary{% endif %} btn-sm" href="{{ step.url }}">{% if step.done %}مشاهده{% else %}انجام ←{% endif %}</a>{% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div>
+      <div class="card card-pad mb">
+        <h3 class="card-title mb">تست نهایی در محیط واقعی</h3>
+        <p class="small muted">
+          صفحه دمو یک سایت شبیه‌سازی‌شده است که ویجت واقعی روی آن نصب شده — همان تجربه‌ای که کاربر سایت مشتری خواهد داشت:
+        </p>
+        <a class="btn btn-primary" href="{{ demo_url }}" target="_blank" rel="noopener">باز کردن صفحه دمو ↗</a>
+      </div>
+      <div class="card card-pad">
+        <h3 class="card-title mb">نکات فروش</h3>
+        <ul class="small muted" style="padding-inline-start:18px;line-height:2">
+          <li>پاسخ‌ها فقط از دانش خود مشتری ساخته می‌شوند؛ در صورت نبود منبع، دستیار صادقانه «نمی‌داند» و کارشناس شما را درگیر می‌کند.</li>
+          <li>هر مکالمه، سرنخ و سؤال بی‌پاسخ در همین پنل ثبت می‌شود — گزارش آماده‌ی جلسه‌ی هفتگی مشتری.</li>
+          <li>رنگ، متن و رفتار ویجت بدون یک خط کدنویسی از صفحه «طراحی ویجت» تغییر می‌کند.</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endblock %}

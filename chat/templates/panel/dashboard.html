@@ -1,0 +1,266 @@
+{% extends "panel/base.html" %}
+{% load static %}
+
+{% block title %}داشبورد{% endblock %}
+{% block page_title %}داشبورد{% endblock %}
+{% block page_sub %}نمای کلی عملکرد دستیار در {% if days == 7 %}۷{% elif days == 14 %}۱۴{% elif days == 90 %}۹۰{% else %}۳۰{% endif %} روز گذشته{% endblock %}
+
+{% block topbar_actions %}
+  <form method="get" class="row" style="gap:6px">
+    <select name="days" onchange="this.form.submit()" style="width:auto">
+      {% for value, label in days_choices %}
+        <option value="{{ value }}" {% if days == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+  </form>
+  <a class="btn btn-ghost" href="/demo/" target="_blank" rel="noopener">دموی ویجت ↗</a>
+  <a class="btn btn-primary" href="{% url 'panel:wizard' %}">راهنمای راه‌اندازی</a>
+{% endblock %}
+
+{% block content %}
+  <!-- Pulse strip: system health at a glance -->
+  <div class="pulse mb" id="pulse-strip">
+    <span class="pulse-title">
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      وضعیت سامانه
+    </span>
+    <span class="pulse-item"><span class="pulse-dot" id="pulse-db"></span> دیتابیس</span>
+    <span class="pulse-item"><span class="pulse-dot" id="pulse-corpus"></span> پایگاه دانش</span>
+    <span class="pulse-item"><span class="pulse-dot" id="pulse-llm"></span> کلید LLM</span>
+    <span class="pulse-item"><span class="pulse-dot" id="pulse-widget"></span> کلید نصب</span>
+    <span class="spacer"></span>
+    <span class="pulse-item muted" id="pulse-updated" style="color:#8a90b5">در حال بررسی…</span>
+  </div>
+
+  <!-- KPI row -->
+  <div class="grid grid-4 mb">
+    <div class="card kpi">
+      <div class="kpi-label">مکالمات (این بازه)</div>
+      <div class="kpi-value">{{ conversations_period }}</div>
+      <div class="kpi-hint">مجموع کل: {{ conversations_total }}</div>
+    </div>
+    <div class="card kpi accent">
+      <div class="kpi-label">پیام‌های رد و بدل</div>
+      <div class="kpi-value">{{ messages_period }}</div>
+      <div class="kpi-hint">
+        میانگین تأخیر پاسخ:
+        {% if avg_latency %}{{ avg_latency }}ms{% else %}—{% endif %}
+      </div>
+    </div>
+    <div class="card kpi ok">
+      <div class="kpi-label">نرخ رضایت کاربران</div>
+      <div class="kpi-value">{% if satisfaction is not None %}{{ satisfaction }}٪{% else %}—{% endif %}</div>
+      <div class="kpi-hint">{{ fb_up }} مفید · {{ fb_down }} نامفید</div>
+    </div>
+    <div class="card kpi warn">
+      <div class="kpi-label">سرنخ‌های جدید</div>
+      <div class="kpi-value">{{ leads_period }}</div>
+      <div class="kpi-hint">{{ handoff_period }} درخواست پشتیبانی انسانی</div>
+    </div>
+  </div>
+
+  <div class="grid grid-4 mb">
+    <div class="card kpi">
+      <div class="kpi-label">نرخ حل‌شده</div>
+      <div class="kpi-value">{{ resolution_rate }}٪</div>
+    </div>
+    <div class="card kpi warn">
+      <div class="kpi-label">سؤالات بی‌پاسخ باز</div>
+      <div class="kpi-value">{{ unanswered_open }}</div>
+      <div class="kpi-hint"><a class="table-link" href="{% url 'panel:unanswered' %}">بررسی سؤالات ←</a></div>
+    </div>
+    <div class="card kpi">
+      <div class="kpi-label">اسناد آماده</div>
+      <div class="kpi-value">{{ docs_ready }}</div>
+      {% if docs_failed %}<div class="kpi-hint text-danger">{{ docs_failed }} سند خطاخورده</div>{% endif %}
+    </div>
+    <div class="card kpi danger">
+      <div class="kpi-label">خطاهای ثبت‌شده</div>
+      <div class="kpi-value">{{ errors_period }}</div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid grid-3 mb">
+    <div class="card" style="grid-column: span 2">
+      <div class="card-head">
+        <h3 class="card-title">حجم مکالمات روزانه</h3>
+      </div>
+      <div class="chart-box"><canvas id="chart-volume"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">توزیع نیت کاربران</h3>
+      </div>
+      <div class="chart-box sm"><canvas id="chart-intents"></canvas></div>
+    </div>
+  </div>
+
+  <div class="grid grid-3 mb">
+    <div class="card" style="grid-column: span 2">
+      <div class="card-head">
+        <h3 class="card-title">پاسخ‌های جایگزین (Fallback) روزانه</h3>
+        <span class="badge-pill gray">شاخص پوشش دانش</span>
+      </div>
+      <div class="chart-box sm"><canvas id="chart-fallbacks"></canvas></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">پرتکرارترین سؤالات بی‌پاسخ</h3></div>
+      <div class="card-pad" style="padding-top:10px">
+        {% if top_unanswered %}
+          {% for item in top_unanswered %}
+            <div class="row" style="justify-content:space-between; padding:7px 0; border-bottom:1px dashed var(--line)">
+              <span class="small" style="flex:1">{{ item.question|truncatechars:44 }}</span>
+              <span class="badge-pill info">×{{ item.count }}</span>
+            </div>
+          {% endfor %}
+          <a class="btn btn-ghost btn-sm mt" href="{% url 'panel:unanswered' %}">همه سؤالات</a>
+        {% else %}
+          <div class="empty"><div class="empty-icon">✓</div>همه سؤالات پاسخ داده شده‌اند</div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Bottom row -->
+  <div class="grid grid-2">
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">آخرین مکالمات</h3>
+        <a class="table-link small" href="{% url 'panel:conversations' %}">همه ←</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>کاربر</th><th>وضعیت</th><th>پیام‌ها</th><th>آخرین فعالیت</th></tr></thead>
+          <tbody>
+            {% for conv in recent_conversations %}
+              <tr>
+                <td><a class="table-link" href="{% url 'panel:conversation-detail' conv.pk %}">{{ conv.get_status_display }}</a><div class="small muted">{{ conv.created_at|date:"m/d H:i" }}</div></td>
+                <td>
+                  {% if conv.status == "resolved" %}<span class="badge-pill ok">حل‌شده</span>
+                  {% elif conv.status == "handed_off" %}<span class="badge-pill warn">ارجاع به کارشناس</span>
+                  {% else %}<span class="badge-pill info">باز</span>{% endif %}
+                </td>
+                <td class="num">{{ conv.message_count }}</td>
+                <td class="small muted">{{ conv.updated_at|date:"m/d H:i" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="4"><div class="empty">هنوز مکالمه‌ای ثبت نشده است</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h3 class="card-title">آخرین سرنخ‌ها</h3>
+        <a class="table-link small" href="{% url 'panel:leads' %}">همه ←</a>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>نام</th><th>تماس</th><th>زمان</th></tr></thead>
+          <tbody>
+            {% for lead in recent_leads %}
+              <tr>
+                <td>{{ lead.name }}</td>
+                <td class="small mono">{{ lead.email|default:lead.phone }}</td>
+                <td class="small muted">{{ lead.created_at|date:"m/d H:i" }}</td>
+              </tr>
+            {% empty %}
+              <tr><td colspan="3"><div class="empty">هنوز سرنخی ثبت نشده است</div></td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block head %}
+  <script src="{% static 'admin/css/chart.umd.min.js' %}"></script>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function () {
+      // Pulse strip
+      fetch("{% url 'panel:health-summary' %}").then(function (r) { return r.json(); }).then(function (d) {
+        function set(id, ok, warnState) {
+          var el = document.getElementById(id);
+          if (!el) return;
+          el.className = "pulse-dot " + (ok ? "ok" : warnState ? "warn" : "bad");
+        }
+        set("pulse-db", d.database);
+        set("pulse-corpus", d.corpus);
+        set("pulse-llm", d.llm_key, true);
+        set("pulse-widget", d.widget_key);
+        var up = document.getElementById("pulse-updated");
+        if (up) up.textContent = "بررسی: همین حالا";
+      }).catch(function () {
+        ["pulse-db", "pulse-corpus", "pulse-llm", "pulse-widget"].forEach(function (id) {
+          var el = document.getElementById(id);
+          if (el) el.className = "pulse-dot bad";
+        });
+      });
+
+      var FONT = { family: "Vazirmatn", size: 11.5 };
+      var opts = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { grid: { display: false }, ticks: { font: FONT, color: "#9aa0bd" } },
+          y: { beginAtZero: true, ticks: { font: FONT, color: "#9aa0bd", precision: 0 }, border: { display: false } }
+        }
+      };
+
+      var volumeEl = document.getElementById("chart-volume");
+      if (volumeEl) new Chart(volumeEl, {
+        type: "line",
+        data: {
+          labels: {{ chart_labels|safe }},
+          datasets: [{
+            data: {{ chart_values|safe }},
+            borderColor: "#4f46e5",
+            backgroundColor: "rgba(79,70,229,.09)",
+            fill: true, tension: 0.42, borderWidth: 2.5,
+            pointRadius: 0, pointHoverRadius: 4
+          }]
+        },
+        options: opts
+      });
+
+      var intentsEl = document.getElementById("chart-intents");
+      if (intentsEl && {{ intent_labels|length }} > 0) new Chart(intentsEl, {
+        type: "doughnut",
+        data: {
+          labels: {{ intent_labels|safe }},
+          datasets: [{
+            data: {{ intent_values|safe }},
+            backgroundColor: ["#4f46e5", "#7c3aed", "#a78bfa", "#06b6d4", "#10b981", "#f59e0b", "#ef4444", "#64748b"],
+            borderWidth: 0
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          cutout: "62%",
+          plugins: { legend: { position: "bottom", labels: { font: FONT, color: "#62688a", boxWidth: 10, padding: 10 } } }
+        }
+      });
+
+      var fbEl = document.getElementById("chart-fallbacks");
+      if (fbEl) new Chart(fbEl, {
+        type: "bar",
+        data: {
+          labels: {{ fallback_labels|safe }},
+          datasets: [{
+            data: {{ fallback_values|safe }},
+            backgroundColor: "rgba(180,83,9,.65)",
+            borderRadius: 5, maxBarThickness: 26
+          }]
+        },
+        options: opts
+      });
+    })();
+  </script>
+{% endblock %}

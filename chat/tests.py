@@ -49,9 +49,14 @@ class ChatEndpointTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["answer"], "پاسخ آزمایشی")
         self.assertEqual(response.headers.get("Cache-Control"), "no-store")
-        # Should NOT have conversation_id or message_id
-        self.assertNotIn("conversation_id", payload)
-        self.assertNotIn("message_id", payload)
+        # Product v2 contract: conversations are persisted server-side and
+        # the widget receives a conversation id + HMAC token + message id.
+        self.assertIn("conversation_id", payload)
+        self.assertTrue(payload["conversation_id"])
+        self.assertIn("conversation_token", payload)
+        self.assertIn("message_id", payload)
+        self.assertIn("citations", payload)
+        self.assertIn("intent", payload)
         get_rag_service.return_value.ask.assert_called_once()
 
     def test_chat_rejects_invalid_payloads(self):
@@ -548,8 +553,7 @@ class SupportAdminTests(TestCase):
             extract_docx(buffer)
 
     def test_docx_xml_entity_expansion_is_blocked(self):
-        import tempfile
-        from pathlib import Path
+        import io
 
         evil = (
             b'<?xml version="1.0"?>'
@@ -557,19 +561,26 @@ class SupportAdminTests(TestCase):
             b"<w:document xmlns:w='http://schemas.openxmlformats.org/wordprocessingml/2006/main'>"
             b"<w:body><w:p><w:r><w:t>&lol2;</w:t></w:r></w:p></w:body></w:document>"
         )
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "evil.docx"
-            with zipfile.ZipFile(path, "w") as archive:
-                archive.writestr("word/document.xml", evil)
-            with self.assertRaises(Exception):
-                extract_docx(path)
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr("word/document.xml", evil)
+        buffer.seek(0)
+        with self.assertRaises(Exception):
+            extract_docx(buffer)
 
     def test_sniff_file_type_matches_content_not_extension(self):
-        import tempfile
+        import os
+        import shutil
+        import uuid
         from pathlib import Path
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
+        tmp = Path(
+            os.path.join(
+                os.environ.get("TEMP", "."), f"sniff-test-{uuid.uuid4().hex[:8]}"
+            )
+        )
+        os.makedirs(tmp, exist_ok=True)
+        try:
             fake_pdf = tmp / "fake.pdf"
             fake_pdf.write_bytes(b"#!/bin/sh\nrm -rf /\n")
             self.assertEqual(sniff_file_type(fake_pdf), "txt")
@@ -581,9 +592,13 @@ class SupportAdminTests(TestCase):
             binary = tmp / "bin.txt"
             binary.write_bytes(b"\x00\x01\x02binary\x00")
             self.assertIsNone(sniff_file_type(binary))
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_retriever_raises_clear_error_on_dimension_mismatch(self):
-        import tempfile
+        import os
+        import shutil
+        import uuid
         from pathlib import Path
 
         import numpy as np
@@ -594,8 +609,13 @@ class SupportAdminTests(TestCase):
             def embed_query_api(self, query):
                 return np.zeros(8, dtype="float32")
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
+        tmp = Path(
+            os.path.join(
+                os.environ.get("TEMP", "."), f"retriever-test-{uuid.uuid4().hex[:8]}"
+            )
+        )
+        os.makedirs(tmp, exist_ok=True)
+        try:
             (tmp / "chunks.json").write_text(
                 json.dumps(["متن یک", "متن دو"], ensure_ascii=False),
                 encoding="utf-8",
@@ -614,21 +634,32 @@ class SupportAdminTests(TestCase):
             )
             with self.assertRaises(EmbeddingDimensionMismatchError):
                 retriever.retrieve("سؤال")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     def test_retriever_empty_corpus_returns_no_results(self):
-        import tempfile
+        import os
+        import shutil
+        import uuid
         from pathlib import Path
 
         from rag.retriever import Retriever
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tmp = Path(tmpdir)
+        tmp = Path(
+            os.path.join(
+                os.environ.get("TEMP", "."), f"corpus-test-{uuid.uuid4().hex[:8]}"
+            )
+        )
+        os.makedirs(tmp, exist_ok=True)
+        try:
             retriever = Retriever(
                 chunks_path=str(tmp / "chunks.json"),
                 metadata_path=str(tmp / "metadata.json"),
                 embeddings_path=str(tmp / "embeddings.npy"),
             )
             self.assertEqual(retriever.retrieve("هر سؤالی"), [])
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
     @patch("chat.document_pipeline.subprocess.Popen")
     def test_document_admin_action_queues_background_worker(self, popen):

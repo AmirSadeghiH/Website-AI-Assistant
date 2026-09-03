@@ -132,16 +132,18 @@ class SecurityHeadersMiddleware:
                 "Permissions-Policy",
                 "camera=(), microphone=(), geolocation=()",
             )
-        # CSP for admin only (widget is served via static files, no inline)
-        if request.path.startswith("/admin/"):
+        # CSP for admin + custom admin panel (same-origin iframe preview is
+        # allowed via frame-ancestors 'self'; widget is static, no inline).
+        if request.path.startswith("/admin/") or request.path.startswith("/panel/"):
             response.setdefault(
                 "Content-Security-Policy",
                 "default-src 'self'; "
                 "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline'; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
                 "img-src 'self' data: https:; "
-                "font-src 'self' data:; "
+                "font-src 'self' data: https://cdn.jsdelivr.net; "
                 "connect-src 'self'; "
+                "frame-src 'self'; "
                 "frame-ancestors 'self';",
             )
         return response

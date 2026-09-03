@@ -16,8 +16,16 @@ from django.http import JsonResponse
 from .models import (
     AdminNotification,
     AnalyticsEvent,
+    BusinessRule,
+    Conversation,
+    CrawlJob,
     Document,
+    Feedback,
+    HandoffRequest,
+    Lead,
+    Message,
     ProviderSettings,
+    UnansweredQuestion,
     WidgetConfig,
 )
 
@@ -639,6 +647,72 @@ class AnalyticsEventAdmin(admin.ModelAdmin):
     date_hierarchy = "created_at"
 
 
+class ConversationAdmin(admin.ModelAdmin):
+    list_display = ("conversation_id", "status", "first_intent", "last_intent",
+                    "message_count", "origin", "created_at", "updated_at")
+    list_filter = ("status", "origin", "first_intent", "created_at")
+    search_fields = ("conversation_id", "messages__content")
+    readonly_fields = ("conversation_id", "created_at", "updated_at")
+    date_hierarchy = "created_at"
+    inlines = ()
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).prefetch_related("messages")
+
+
+class MessageAdmin(admin.ModelAdmin):
+    list_display = ("conversation", "role", "intent", "used_fallback",
+                    "is_streamed", "latency_ms", "created_at")
+    list_filter = ("role", "intent", "used_fallback", "is_streamed")
+    search_fields = ("content",)
+    raw_id_fields = ("conversation",)
+    readonly_fields = ("created_at",)
+
+
+class FeedbackAdmin(admin.ModelAdmin):
+    list_display = ("message", "helpful", "has_comment", "created_at")
+    list_filter = ("helpful", "created_at")
+    raw_id_fields = ("message",)
+
+    @admin.display(boolean=True, description="نظر دارد")
+    def has_comment(self, obj):
+        return bool(obj.comment)
+
+
+class LeadAdmin(admin.ModelAdmin):
+    list_display = ("name", "email", "phone", "source", "conversation",
+                    "notified", "created_at")
+    list_filter = ("source", "notified", "created_at")
+    search_fields = ("name", "email", "phone", "note")
+    raw_id_fields = ("conversation",)
+
+
+class HandoffRequestAdmin(admin.ModelAdmin):
+    list_display = ("channel", "status", "question", "conversation",
+                    "notified", "created_at")
+    list_filter = ("channel", "status", "created_at")
+    search_fields = ("question",)
+    raw_id_fields = ("conversation",)
+
+
+class UnansweredQuestionAdmin(admin.ModelAdmin):
+    list_display = ("question", "count", "reason", "last_intent",
+                    "is_resolved", "updated_at")
+    list_filter = ("reason", "is_resolved", "last_intent")
+    search_fields = ("question",)
+
+    @admin.action(description="علامت‌گذاری حل‌شده")
+    def mark_resolved(self, request, queryset):
+        queryset.update(is_resolved=True)
+
+
+class CrawlJobAdmin(admin.ModelAdmin):
+    list_display = ("start_url", "status", "max_pages", "pages_found",
+                    "pages_indexed", "pages_failed", "created_at")
+    list_filter = ("status", "created_at")
+    readonly_fields = ("log", "error_message", "created_at", "updated_at")
+
+
 admin_site.register(WidgetConfig, WidgetConfigAdmin)
 admin_site.register(ProviderSettings, ProviderSettingsAdmin)
 admin_site.register(Document, DocumentAdmin)
@@ -646,3 +720,18 @@ admin_site.register(AnalyticsEvent, AnalyticsEventAdmin)
 admin_site.register(AdminNotification, AdminNotificationAdmin)
 admin_site.register(get_user_model(), UserAdmin)
 admin_site.register(Group)
+admin_site.register(Conversation, ConversationAdmin)
+admin_site.register(Message, MessageAdmin)
+admin_site.register(Feedback, FeedbackAdmin)
+admin_site.register(Lead, LeadAdmin)
+admin_site.register(HandoffRequest, HandoffRequestAdmin)
+admin_site.register(UnansweredQuestion, UnansweredQuestionAdmin)
+admin_site.register(CrawlJob, CrawlJobAdmin)
+
+
+@admin.register(BusinessRule, site=admin_site)
+class BusinessRuleAdmin(admin.ModelAdmin):
+    list_display = ("name", "enabled", "priority", "trigger_type", "trigger_value", "action_type", "action_label", "updated_at")
+    list_filter = ("enabled", "trigger_type", "action_type")
+    list_editable = ("enabled", "priority")
+    search_fields = ("name", "trigger_value", "action_payload", "action_label")

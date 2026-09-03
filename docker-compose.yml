@@ -39,6 +39,31 @@ services:
     expose:
       - "8000"
 
+  # ─── Background worker: crawl jobs + document re-embedding ───────────
+  worker:
+    build: .
+    container_name: ai-support-worker
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - DB_NAME=${DB_NAME:-ai_support}
+      - DB_USER=${DB_USER:-ai_support}
+      - DB_PASSWORD=${DB_PASSWORD:-change-me-in-production}
+      - DB_HOST=db
+      - DB_PORT=5432
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - media_data:/app/media
+      - corpus_data:/app/Data
+    networks:
+      - internal
+    command: ["python", "manage.py", "runworker", "--loop", "--interval", "5"]
+
   # ─── PostgreSQL ─────────────────────────────────────────────────────
   db:
     image: postgres:16-alpine

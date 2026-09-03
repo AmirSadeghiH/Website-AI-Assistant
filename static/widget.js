@@ -1,33 +1,15 @@
 /**
- * AI Support Widget v4.0 — "Atelier" Luxury Edition
- * ─────────────────────────────────────────────────────────────────────────
- * A premium, product-led redesign of the original chat widget. Behavior,
- * public API, config keys, endpoints, and DOM/element IDs are UNCHANGED —
- * only the visual/design layer (CSS custom properties, typography, motion,
- * spacing) has been rebuilt around a cohesive "Atelier" design system:
- *
- *   • Palette   — obsidian ink + warm ivory surfaces + a restrained
- *                 champagne accent (fully overridable via the existing
- *                 primaryColor / secondaryColor / accentColor options —
- *                 tenant theming keeps working exactly as before).
- *   • Type      — a single quiet type scale (Vazirmatn/Inter) with
- *                 deliberate letter-spacing and weight, not decoration.
- *   • Motion    — one signature gesture (a slow ambient "breathing" glow
- *                 on the launcher) instead of scattered micro-effects;
- *                 everything else is calm, short, and respects
- *                 prefers-reduced-motion.
- *   • A11y      — explicit :focus-visible rings, AA-checked contrast on
- *                 every text/background pairing, unchanged aria wiring.
- *
- * Encapsulation: still 100% Shadow DOM (mode:"open"), a single style tag,
- * :host{all:initial} reset — zero global CSS/JS leakage either direction,
- * identical to the original embed/script contract.
- *
+ * AI Support Widget v4.0 — Professional Chat Widget
  * Features: Shadow DOM, auto-grow textarea, dark/light themes,
- *           refined spring motion, code blocks, dynamic icons,
+ *           spring animations, code blocks, dynamic icons,
  *           rigid 4-corner positioning with custom offsets,
  *           inline feedback (thumbs up/down) on bot messages,
- *           full CSS variable theming system.
+ *           full CSS variable system,
+ *           v4: SSE streaming with stop button, citations chips,
+ *           lead-capture form (honeypot protected), human handoff
+ *           (email/telegram/whatsapp/contact-form), conversation
+ *           persistence with history restore, live-preview
+ *           postMessage channel for the admin customizer.
  */
 (function () {
   "use strict";
@@ -48,9 +30,9 @@
     subtitle: "آنلاین • پاسخ فوری",
     greeting: "سلام! 👋 چطور می‌توانم کمکتان کنم؟",
     timeoutMs: 45000,
-    primaryColor: "#15171d", // obsidian ink (Atelier default — overridable per-tenant)
-    secondaryColor: "#2b2f3a", // deep graphite (Atelier default)
-    accentColor: "#c9a877", // champagne accent (Atelier default)
+    primaryColor: "#6366f1",
+    secondaryColor: "#8b5cf6",
+    accentColor: "#a78bfa",
     headerBadge: "آنلاین",
     botAvatarText: "✦",
     inputPlaceholder: "پیام خود را بنویسید...",
@@ -81,6 +63,17 @@
     privacyUrl: "",
     supportEmail: "",
     sessionId: "",
+    /* v4 — streaming, citations, lead capture, human handoff */
+    enableStreaming: true,
+    showCitations: true,
+    enableLeadCapture: true,
+    leadFormTitle: "برای پیگیری، راه تماس بگذارید",
+    leadFormDescription: "کارشناس ما در اسرع وقت با شما تماس می‌گیرد.",
+    enableHandoff: true,
+    handoffTrigger: "low_confidence",
+    handoffMessage: "پاسخ این سؤال در دانش دستیار نبود؛ یک کارشناس انسانی بررسی می‌کند.",
+    handoffUrls: {},
+    handoffLabel: "گفتگو با کارشناس",
   };
 
   /* ─────────────── SVG ICONS ─────────────── */
@@ -101,148 +94,116 @@
     thumbDown: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>',
     thumbUpFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3zM7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>',
     thumbDownFilled: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1"><path d="M10 15v4a3 3 0 0 0 3 3l4-9V2H5.72a2 2 0 0 0-2 1.7l-1.38 9a2 2 0 0 0 2 2.3zm7-13h2.67A2.31 2.31 0 0 1 22 4v7a2.31 2.31 0 0 1-2.33 2H17"/></svg>',
+    link: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>',
+    phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z"/></svg>',
+    user: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>',
+    check: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>',
+    stop: '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>',
   };
 
   /* ─────────────── CSS (BEM) ─────────────── */
   var CSS = `
-    /* ═══════════════════════════════════════════════════════════════════
-       ATELIER DESIGN SYSTEM
-       A quiet, premium token set. Every selector below matches the exact
-       classes/ids the widget's JS already binds to — only values changed.
-       ═══════════════════════════════════════════════════════════════════ */
-
     :host{all:initial;--asw-font:'Vazirmatn','Inter',ui-sans-serif,system-ui,sans-serif}
     *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-    .asw{font-family:var(--asw-font);font-size:var(--asw-font-size,14px);direction:rtl;line-height:1.65;color:var(--asw-text);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;text-rendering:optimizeLegibility}
+    .asw{font-family:var(--asw-font);font-size:var(--asw-font-size,14px);direction:rtl;line-height:1.6;color:var(--asw-text);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale}
 
-    /* ─── Token System (light) ───
-       primary/secondary/accent stay dynamic (tenant-configurable via the
-       existing primaryColor/secondaryColor/accentColor options); every
-       other token below is the fixed Atelier surface/ink palette. */
-    .asw{
-      --asw-primary:#15171d;--asw-secondary:#2b2f3a;--asw-accent:#c9a877;
-      --asw-bg:#faf8f4;--asw-surface:#f4f1ea;--asw-surface-2:#ece7da;
-      --asw-text:#1a1917;--asw-text-secondary:#6b6459;--asw-text-muted:#a49b8c;
-      --asw-border:#e6e0d2;--asw-border-focus:var(--asw-accent);
-      --asw-shadow:0 32px 72px -16px rgba(26,20,10,.22),0 10px 28px -12px rgba(26,20,10,.14);
-      --asw-radius:24px;--asw-radius-sm:14px;--asw-radius-xs:9px;
-      --asw-panel-w:400px;--asw-panel-h:640px;
-      --asw-header-bg:linear-gradient(135deg,var(--asw-primary),var(--asw-secondary));
-      --asw-user-bg:var(--asw-primary);--asw-user-text:#fbf8f2;
-      --asw-bot-bg:#ffffff;--asw-bot-text:#1a1917;
-      --asw-input-bg:#f4f1ea;--asw-input-focus-bg:#ffffff;
-      --asw-typing-dot:var(--asw-accent);
-      --asw-suggestion-bg:#ffffff;--asw-suggestion-border:var(--asw-border);
-      --asw-suggestion-text:var(--asw-text);--asw-suggestion-active:var(--asw-primary);
-      --asw-success:#1c8a63;--asw-error:#a8432c;--asw-warning:#a5720f;
-    }
+    /* ─── CSS Variable System ─── */
+    .asw{--asw-primary:#6366f1;--asw-secondary:#8b5cf6;--asw-accent:#a78bfa;--asw-bg:#ffffff;--asw-surface:#f8fafc;--asw-surface-2:#f1f5f9;--asw-text:#0f172a;--asw-text-secondary:#64748b;--asw-text-muted:#94a3b8;--asw-border:#e2e8f0;--asw-border-focus:#6366f1;--asw-shadow:0 25px 60px rgba(15,23,42,.12);--asw-radius:24px;--asw-radius-sm:12px;--asw-radius-xs:8px;--asw-panel-w:400px;--asw-panel-h:640px;--asw-header-bg:linear-gradient(135deg,var(--asw-primary),var(--asw-secondary));--asw-user-bg:var(--asw-primary);--asw-user-text:#fff;--asw-bot-bg:#fff;--asw-bot-text:#0f172a;--asw-input-bg:#f1f5f9;--asw-input-focus-bg:#fff;--asw-typing-dot:var(--asw-text-muted);--asw-suggestion-bg:#fff;--asw-suggestion-border:var(--asw-border);--asw-suggestion-text:var(--asw-text);--asw-suggestion-active:var(--asw-primary);--asw-success:#10b981;--asw-error:#ef4444;--asw-warning:#f59e0b}
 
     /* Dark mode */
-    .asw.dark{
-      --asw-bg:#0c0d10;--asw-surface:#15171b;--asw-surface-2:#1d2025;
-      --asw-text:#f2efe7;--asw-text-secondary:#a49b8c;--asw-text-muted:#6f6a60;
-      --asw-border:#262a30;--asw-border-focus:var(--asw-accent);
-      --asw-shadow:0 32px 80px -12px rgba(0,0,0,.65);
-      --asw-bot-bg:#181a1f;--asw-bot-text:#f2efe7;
-      --asw-input-bg:#15171b;--asw-input-focus-bg:#0c0d10;
-      --asw-typing-dot:var(--asw-accent);
-      --asw-suggestion-bg:#181a1f;--asw-suggestion-border:#262a30;--asw-suggestion-text:#f2efe7;
-    }
-
-    /* ─── Focus visibility (WCAG 2.2 AA) ─── */
-    .asw button:focus-visible,.asw a:focus-visible,.asw textarea:focus-visible{outline:2px solid var(--asw-accent);outline-offset:2px}
-    .asw button:focus:not(:focus-visible),.asw a:focus:not(:focus-visible){outline:none}
+    .asw.dark{--asw-bg:#0f172a;--asw-surface:#1e293b;--asw-surface-2:#334155;--asw-text:#f1f5f9;--asw-text-secondary:#94a3b8;--asw-text-muted:#64748b;--asw-border:#334155;--asw-border-focus:#818cf8;--asw-shadow:0 25px 60px rgba(0,0,0,.4);--asw-bot-bg:#1e293b;--asw-bot-text:#f1f5f9;--asw-input-bg:#1e293b;--asw-input-focus-bg:#0f172a;--asw-typing-dot:#64748b;--asw-suggestion-bg:#1e293b;--asw-suggestion-border:#334155;--asw-suggestion-text:#f1f5f9}
 
     /* ─── Root Container ─── */
     .asw-root{position:fixed;z-index:2147483647;width:0;height:0;pointer-events:none}
     .asw-root>*{pointer-events:auto}
     .asw-root *{box-sizing:border-box}
 
-    /* ─── FAB (launcher) — the one signature gesture: a slow ambient glow ─── */
-    .asw-fab{width:60px;height:60px;border:none;border-radius:50%;background:var(--asw-header-bg);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 16px 36px -10px rgba(0,0,0,.4),0 0 0 1px rgba(255,255,255,.05) inset;transition:transform .45s cubic-bezier(.16,1,.3,1),box-shadow .45s ease;position:fixed;overflow:hidden}
-    .asw-fab::after{content:'';position:absolute;inset:0;border-radius:inherit;border:1px solid rgba(255,255,255,0);transition:border-color .3s}
-    .asw-fab:hover{transform:scale(1.07);box-shadow:0 20px 44px -8px rgba(0,0,0,.48),0 0 0 1px rgba(255,255,255,.08) inset}
-    .asw-fab:hover::after{border-color:rgba(255,255,255,.18)}
-    .asw-fab:active{transform:scale(.94)}
-    .asw-fab svg{width:24px;height:24px;transition:transform .45s cubic-bezier(.34,1.56,.64,1)}
+    /* ─── FAB (Floating Action Button) — anchored to extreme corner ─── */
+    .asw-fab{width:60px;height:60px;border:none;border-radius:50%;background:var(--asw-header-bg);color:#fff;display:grid;place-items:center;cursor:pointer;box-shadow:0 8px 32px rgba(99,102,241,.4);transition:transform .3s cubic-bezier(.34,1.56,.64,1),box-shadow .3s ease;position:fixed;overflow:hidden}
+    .asw-fab::before{content:'';position:absolute;inset:0;background:rgba(255,255,255,.15);border-radius:inherit;opacity:0;transition:opacity .3s}
+    .asw-fab:hover{transform:scale(1.08);box-shadow:0 12px 40px rgba(99,102,241,.5)}
+    .asw-fab:hover::before{opacity:1}
+    .asw-fab:active{transform:scale(.95)}
+    .asw-fab svg{width:26px;height:26px;transition:transform .3s cubic-bezier(.34,1.56,.64,1)}
     .asw-fab .asw-fab-icon-main{display:block}
     .asw-fab .asw-fab-icon-close{display:none}
     .asw-fab.active .asw-fab-icon-main{display:none}
     .asw-fab.active .asw-fab-icon-close{display:block}
     .asw-fab.active svg{transform:rotate(90deg)}
-    .asw-fab-custom-icon{width:26px;height:26px;border-radius:6px;object-fit:contain}
-    .asw-fab-pulse{position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,var(--asw-accent) 0%,transparent 68%);opacity:0;animation:asw-breathe 3.4s ease-in-out infinite}
-    @keyframes asw-breathe{0%,100%{opacity:0;transform:scale(.85)}50%{opacity:.28;transform:scale(1.05)}}
+    .asw-fab-custom-icon{width:28px;height:28px;border-radius:6px;object-fit:contain}
+    .asw-fab-pulse{position:absolute;inset:-4px;border-radius:50%;border:2px solid var(--asw-primary);opacity:0;animation:asw-pulse-ring 2s ease-out infinite}
+    @keyframes asw-pulse-ring{0%{transform:scale(.8);opacity:.6}100%{transform:scale(1.4);opacity:0}}
 
-    /* ─── Panel ─── */
-    .asw-panel{width:var(--asw-panel-w);height:var(--asw-panel-h);max-width:calc(100vw - 24px);max-height:calc(100dvh - 100px);display:flex;flex-direction:column;overflow:hidden;background:var(--asw-bg);border-radius:var(--asw-radius);box-shadow:var(--asw-shadow);border:1px solid var(--asw-border);opacity:0;pointer-events:none;position:fixed;transition:opacity .4s cubic-bezier(.16,1,.3,1),transform .45s cubic-bezier(.16,1,.3,1)}
+    /* ─── Panel — fixed, positioned adjacent to FAB ─── */
+    .asw-panel{width:var(--asw-panel-w);height:var(--asw-panel-h);max-width:calc(100vw - 24px);max-height:calc(100dvh - 100px);display:flex;flex-direction:column;overflow:hidden;background:var(--asw-bg);border-radius:var(--asw-radius);box-shadow:var(--asw-shadow);border:1px solid var(--asw-border);opacity:0;pointer-events:none;position:fixed;transition:opacity .35s cubic-bezier(.16,1,.3,1),transform .4s cubic-bezier(.16,1,.3,1)}
     .asw-panel.open{opacity:1;pointer-events:auto;transform:translateY(0) scale(1)}
     .asw-panel.no-anim{transition:none}
+    /* Panel transform origins per corner */
     .asw-root.corner-br .asw-panel{transform-origin:bottom right}
     .asw-root.corner-bl .asw-panel{transform-origin:bottom left}
     .asw-root.corner-tr .asw-panel{transform-origin:top right}
     .asw-root.corner-tl .asw-panel{transform-origin:top left}
-    .asw-root.corner-br .asw-panel,.asw-root.corner-bl .asw-panel{transform:translateY(14px) scale(.96)}
-    .asw-root.corner-tr .asw-panel,.asw-root.corner-tl .asw-panel{transform:translateY(-14px) scale(.96)}
+    /* Top corners: panel opens downward */
+    .asw-root.corner-tr .asw-panel,.asw-root.corner-tl .asw-panel{transform:translateY(-20px) scale(.95)}
     .asw-root.corner-tr .asw-panel.open,.asw-root.corner-tl .asw-panel.open{transform:translateY(0) scale(1)}
 
     /* ─── Header ─── */
-    .asw-header{display:flex;align-items:center;justify-content:space-between;padding:18px 20px;background:var(--asw-header-bg);color:#fff;position:relative;overflow:hidden;flex-shrink:0}
-    .asw-header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.25),transparent);background:linear-gradient(90deg,transparent,color-mix(in srgb,var(--asw-accent) 70%,transparent),transparent)}
-    .asw-heading{display:flex;align-items:center;gap:13px;min-width:0;flex:1}
-    .asw-avatar{width:42px;height:42px;border-radius:15px;display:grid;place-items:center;background:rgba(255,255,255,.14);backdrop-filter:blur(10px);color:#fff;font-size:17px;font-weight:600;flex-shrink:0;border:1px solid rgba(255,255,255,.22);transition:transform .3s}
+    .asw-header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--asw-header-bg);color:#fff;position:relative;overflow:hidden;flex-shrink:0}
+    .asw-header::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.2),transparent)}
+    .asw-heading{display:flex;align-items:center;gap:12px;min-width:0;flex:1}
+    .asw-avatar{width:42px;height:42px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.2);backdrop-filter:blur(10px);color:#fff;font-size:18px;font-weight:700;flex-shrink:0;border:2px solid rgba(255,255,255,.25);transition:transform .3s}
     .asw-avatar img{width:100%;height:100%;border-radius:inherit;object-fit:cover}
     .asw-info{min-width:0;flex:1}
     .asw-title-row{display:flex;align-items:center;gap:8px}
-    .asw-title{font-size:15px;font-weight:700;letter-spacing:.005em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff}
-    .asw-badge{padding:3px 9px;border-radius:999px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.18);backdrop-filter:blur(8px);font-size:10px;font-weight:600;letter-spacing:.06em;color:rgba(255,255,255,.92);white-space:nowrap;display:flex;align-items:center;gap:5px}
-    .asw-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--asw-accent);animation:asw-dot-pulse 2.4s ease-in-out infinite}
-    @keyframes asw-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.45;transform:scale(.8)}}
-    .asw-subtitle{font-size:12px;color:rgba(255,255,255,.72);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .asw-title{font-size:15px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff}
+    .asw-badge{padding:3px 8px;border-radius:999px;background:rgba(255,255,255,.2);backdrop-filter:blur(8px);font-size:10px;font-weight:600;letter-spacing:.05em;color:#fff;white-space:nowrap;display:flex;align-items:center;gap:4px}
+    .asw-badge-dot{width:6px;height:6px;border-radius:50%;background:#34d399;animation:asw-dot-pulse 2s ease-in-out infinite}
+    @keyframes asw-dot-pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.8)}}
+    .asw-subtitle{font-size:12px;color:rgba(255,255,255,.85);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
     /* Header Actions */
     .asw-actions{display:flex;gap:6px}
-    .asw-header-btn{width:33px;height:33px;border:1px solid rgba(255,255,255,.16);border-radius:11px;background:rgba(255,255,255,.07);backdrop-filter:blur(8px);color:#fff;display:grid;place-items:center;cursor:pointer;transition:all .25s ease}
-    .asw-header-btn:hover{background:rgba(255,255,255,.18);transform:translateY(-1px)}
-    .asw-header-btn:active{transform:translateY(0) scale(.95)}
-    .asw-header-btn svg{width:15px;height:15px}
+    .asw-header-btn{width:32px;height:32px;border:1px solid rgba(255,255,255,.2);border-radius:10px;background:rgba(255,255,255,.1);backdrop-filter:blur(8px);color:#fff;display:grid;place-items:center;cursor:pointer;transition:all .2s}
+    .asw-header-btn:hover{background:rgba(255,255,255,.25);transform:scale(1.05)}
+    .asw-header-btn:active{transform:scale(.95)}
+    .asw-header-btn svg{width:16px;height:16px}
 
     /* ─── Messages ─── */
-    .asw-messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:22px 18px 12px;display:flex;flex-direction:column;gap:18px;scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:var(--asw-border) transparent}
+    .asw-messages{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:20px 16px 12px;display:flex;flex-direction:column;gap:16px;scroll-behavior:smooth;scrollbar-width:thin;scrollbar-color:var(--asw-border) transparent}
     .asw-messages::-webkit-scrollbar{width:5px}
     .asw-messages::-webkit-scrollbar-track{background:transparent}
     .asw-messages::-webkit-scrollbar-thumb{background:var(--asw-border);border-radius:10px}
 
     /* Message Row */
-    .asw-row{display:flex;align-items:flex-end;gap:10px;max-width:88%;opacity:0;transform:translateY(10px);animation:asw-msg-in .45s cubic-bezier(.16,1,.3,1) forwards}
+    .asw-row{display:flex;align-items:flex-end;gap:10px;max-width:90%;opacity:0;transform:translateY(12px);animation:asw-msg-in .4s cubic-bezier(.16,1,.3,1) forwards}
     .asw-row.user{align-self:flex-end;flex-direction:row-reverse}
     .asw-row.bot{align-self:flex-start}
     @keyframes asw-msg-in{to{opacity:1;transform:translateY(0)}}
     .asw-row.no-anim{animation:none;opacity:1;transform:none}
 
     /* Message Avatar */
-    .asw-msg-avatar{width:29px;height:29px;flex:0 0 29px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700;transition:transform .2s}
+    .asw-msg-avatar{width:30px;height:30px;flex:0 0 30px;border-radius:10px;display:grid;place-items:center;font-size:11px;font-weight:700;transition:transform .2s}
     .asw-row.bot .asw-msg-avatar{background:var(--asw-surface);border:1px solid var(--asw-border);color:var(--asw-primary)}
-    .asw-row.user .asw-msg-avatar{background:var(--asw-primary);color:var(--asw-user-text)}
-    .asw-row .asw-msg-avatar:hover{transform:scale(1.08)}
+    .asw-row.user .asw-msg-avatar{background:var(--asw-primary);color:#fff}
+    .asw-row .asw-msg-avatar:hover{transform:scale(1.1)}
     .asw-no-avatar .asw-msg-avatar{display:none}
 
     /* Message Bubble */
     .asw-col{max-width:100%;min-width:0}
-    .asw-bubble{padding:13px 17px;font-size:var(--asw-font-size,14px);line-height:1.72;word-break:break-word;white-space:pre-wrap;max-width:100%;overflow-wrap:break-word;position:relative}
-    .asw-row.bot .asw-bubble{background:var(--asw-bot-bg);color:var(--asw-bot-text);border:1px solid var(--asw-border);box-shadow:0 2px 14px -6px rgba(26,20,10,.08)}
-    .asw-row.user .asw-bubble{background:var(--asw-user-bg);color:var(--asw-user-text);box-shadow:0 8px 22px -10px rgba(0,0,0,.4)}
+    .asw-bubble{padding:12px 16px;font-size:var(--asw-font-size,14px);line-height:1.7;word-break:break-word;white-space:pre-wrap;max-width:100%;overflow-wrap:break-word;position:relative}
+    .asw-row.bot .asw-bubble{background:var(--asw-bot-bg);color:var(--asw-bot-text);border:1px solid var(--asw-border);box-shadow:0 2px 12px rgba(0,0,0,.04)}
+    .asw-row.user .asw-bubble{background:var(--asw-user-bg);color:var(--asw-user-text);box-shadow:0 4px 16px rgba(99,102,241,.25)}
 
     /* Bubble Styles */
-    .asw[data-bubble="rounded"] .asw-bubble{border-radius:19px 19px 19px 5px}
-    .asw[data-bubble="rounded"] .asw-row.user .asw-bubble{border-radius:19px 19px 5px 19px}
-    .asw[data-bubble="sharp"] .asw-bubble{border-radius:5px}
-    .asw[data-bubble="pill"] .asw-bubble{border-radius:24px;padding:11px 19px}
+    .asw[data-bubble="rounded"] .asw-bubble{border-radius:18px 18px 18px 6px}
+    .asw[data-bubble="rounded"] .asw-row.user .asw-bubble{border-radius:18px 18px 6px 18px}
+    .asw[data-bubble="sharp"] .asw-bubble{border-radius:4px}
+    .asw[data-bubble="pill"] .asw-bubble{border-radius:24px;padding:10px 18px}
 
     /* Bubble Content */
     .asw-bubble strong{font-weight:700}
     .asw-bubble em{font-style:italic}
-    .asw-bubble a{color:var(--asw-primary);font-weight:600;text-decoration:none;border-bottom:1px solid transparent;border-bottom:1px solid color-mix(in srgb,var(--asw-primary) 35%,transparent);transition:border-color .2s}
+    .asw-bubble a{color:var(--asw-primary);font-weight:600;text-decoration:none;border-bottom:1px solid transparent;transition:border-color .2s}
     .asw-row.bot .asw-bubble a:hover{border-bottom-color:var(--asw-primary)}
     .asw-bubble ul,.asw-bubble ol{margin:8px 0 4px;padding-inline-start:20px}
     .asw-bubble li{margin:4px 0}
@@ -251,28 +212,28 @@
     .asw-bubble p:last-child{margin-bottom:0}
 
     /* Code Blocks */
-    .asw-code-wrap{position:relative;margin:8px 0;border-radius:var(--asw-radius-xs);overflow:hidden;background:#14151a;border:1px solid #262a30}
-    .asw-code-header{display:flex;align-items:center;justify-content:space-between;padding:7px 13px;background:#0d0e12;border-bottom:1px solid #262a30}
-    .asw-code-lang{font-size:11px;color:#8b8478;font-weight:600;text-transform:uppercase;letter-spacing:.07em}
-    .asw-code-copy{display:flex;align-items:center;gap:4px;padding:3px 8px;border:none;border-radius:6px;background:rgba(255,255,255,.06);color:#a8a196;font-size:11px;cursor:pointer;transition:all .2s;font-family:inherit}
-    .asw-code-copy:hover{background:rgba(255,255,255,.12);color:#f2efe7}
+    .asw-code-wrap{position:relative;margin:8px 0;border-radius:var(--asw-radius-xs);overflow:hidden;background:#1e293b;border:1px solid #334155}
+    .asw-code-header{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;background:#0f172a;border-bottom:1px solid #334155}
+    .asw-code-lang{font-size:11px;color:#94a3b8;font-weight:600;text-transform:uppercase;letter-spacing:.05em}
+    .asw-code-copy{display:flex;align-items:center;gap:4px;padding:3px 8px;border:none;border-radius:6px;background:rgba(255,255,255,.08);color:#94a3b8;font-size:11px;cursor:pointer;transition:all .2s;font-family:inherit}
+    .asw-code-copy:hover{background:rgba(255,255,255,.15);color:#e2e8f0}
     .asw-code-copy.copied{color:var(--asw-success)}
     .asw-code-copy svg{width:12px;height:12px}
-    .asw-code-block{padding:15px 16px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;font-size:12.5px;line-height:1.65;color:#e9e5da;white-space:pre;tab-size:2}
+    .asw-code-block{padding:14px 16px;overflow-x:auto;font-family:'JetBrains Mono','Fira Code','Cascadia Code',monospace;font-size:12.5px;line-height:1.6;color:#e2e8f0;white-space:pre;tab-size:2}
     .asw-code-block code{font-family:inherit}
 
     /* Inline Code */
     .asw-bubble code:not(.asw-code-block code){padding:2px 6px;border-radius:4px;background:var(--asw-surface-2);font-family:'JetBrains Mono','Fira Code',monospace;font-size:.88em;color:var(--asw-primary);border:1px solid var(--asw-border)}
 
     /* Timestamp */
-    .asw-time{padding:5px 4px 0;font-size:10.5px;color:var(--asw-text-muted);font-weight:500;letter-spacing:.03em}
+    .asw-time{padding:4px 4px 0;font-size:10.5px;color:var(--asw-text-muted);font-weight:500;letter-spacing:.02em}
     .asw-row.user .asw-time{text-align:right}
 
     /* ─── Feedback (thumbs up/down) ─── */
     .asw-feedback{display:flex;gap:2px;margin-top:6px;opacity:0;transition:opacity .2s}
     .asw-row:hover .asw-feedback{opacity:1}
     .asw-feedback[hidden]{display:none}
-    .asw-fb-btn{width:27px;height:27px;border:none;border-radius:8px;background:transparent;color:var(--asw-text-muted);cursor:pointer;display:grid;place-items:center;transition:all .2s}
+    .asw-fb-btn{width:28px;height:28px;border:none;border-radius:6px;background:transparent;color:var(--asw-text-muted);cursor:pointer;display:grid;place-items:center;transition:all .2s}
     .asw-fb-btn:hover{background:var(--asw-surface-2);color:var(--asw-primary)}
     .asw-fb-btn.active{color:var(--asw-primary)}
     .asw-fb-btn.active.thumbs-up{color:var(--asw-success)}
@@ -280,42 +241,42 @@
     .asw-fb-btn svg{width:14px;height:14px}
 
     /* ─── Typing Indicator ─── */
-    .asw-typing{padding:4px 18px 12px;display:flex;align-items:center;gap:8px}
+    .asw-typing{padding:4px 16px 12px;display:flex;align-items:center;gap:8px}
     .asw-typing[hidden]{display:none}
     .asw-typing-label{font-size:12px;color:var(--asw-text-muted);font-weight:500}
     .asw-typing-dots{display:flex;gap:4px;align-items:center}
-    .asw-typing-dot{width:6px;height:6px;border-radius:50%;background:var(--asw-typing-dot);animation:asw-bounce .6s ease-in-out infinite}
+    .asw-typing-dot{width:7px;height:7px;border-radius:50%;background:var(--asw-primary);animation:asw-bounce .6s ease-in-out infinite}
     .asw-typing-dot:nth-child(2){animation-delay:.15s}
     .asw-typing-dot:nth-child(3){animation-delay:.3s}
     @keyframes asw-bounce{0%,100%{transform:translateY(0);opacity:.4}50%{transform:translateY(-6px);opacity:1}}
 
     /* ─── Suggestions ─── */
-    .asw-suggestions{display:flex;gap:8px;overflow-x:auto;padding:4px 18px 14px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+    .asw-suggestions{display:flex;gap:8px;overflow-x:auto;padding:4px 16px 12px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
     .asw-suggestions::-webkit-scrollbar{display:none}
     .asw-suggestions[hidden]{display:none}
-    .asw-suggestion{flex:0 0 auto;padding:8px 16px;border:1px solid var(--asw-suggestion-border);border-radius:999px;background:var(--asw-suggestion-bg);color:var(--asw-suggestion-text);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1);white-space:nowrap;font-family:inherit}
-    .asw-suggestion:hover{border-color:var(--asw-suggestion-active);color:var(--asw-suggestion-active);transform:translateY(-1px);box-shadow:0 6px 16px -8px rgba(26,20,10,.25)}
+    .asw-suggestion{flex:0 0 auto;padding:8px 16px;border:1px solid var(--asw-suggestion-border);border-radius:999px;background:var(--asw-suggestion-bg);color:var(--asw-suggestion-text);font-size:12.5px;font-weight:500;cursor:pointer;transition:all .25s cubic-bezier(.16,1,.3,1);white-space:nowrap;font-family:inherit}
+    .asw-suggestion:hover{border-color:var(--asw-suggestion-active);color:var(--asw-suggestion-active);transform:translateY(-1px);box-shadow:0 4px 12px rgba(99,102,241,.15)}
     .asw-suggestion:active{transform:translateY(0)}
 
     /* ─── Footer / Input ─── */
-    .asw-footer{padding:14px 16px 16px;background:var(--asw-bg);border-top:1px solid var(--asw-border);flex-shrink:0}
-    .asw-input-wrap{display:flex;align-items:flex-end;gap:8px;padding:9px 11px 9px 17px;border:1.5px solid var(--asw-border);border-radius:22px;background:var(--asw-input-bg);transition:all .3s cubic-bezier(.16,1,.3,1)}
-    .asw-input-wrap:focus-within{background:var(--asw-input-focus-bg);border-color:var(--asw-border-focus);box-shadow:0 0 0 4px rgba(0,0,0,.05);box-shadow:0 0 0 4px color-mix(in srgb,var(--asw-accent) 16%,transparent)}
+    .asw-footer{padding:12px 14px 14px;background:var(--asw-bg);border-top:1px solid var(--asw-border);flex-shrink:0}
+    .asw-input-wrap{display:flex;align-items:flex-end;gap:8px;padding:8px 10px 8px 16px;border:2px solid var(--asw-border);border-radius:20px;background:var(--asw-input-bg);transition:all .3s cubic-bezier(.16,1,.3,1)}
+    .asw-input-wrap:focus-within{background:var(--asw-input-focus-bg);border-color:var(--asw-border-focus);box-shadow:0 0 0 4px rgba(99,102,241,.1)}
 
     /* Auto-grow Textarea */
-    .asw-input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--asw-text);font-size:var(--asw-font-size,14px);font-family:inherit;line-height:1.6;resize:none;max-height:120px;padding:5px 0;overflow-y:auto;scrollbar-width:none}
+    .asw-input{min-width:0;flex:1;border:0;outline:0;background:transparent;color:var(--asw-text);font-size:var(--asw-font-size,14px);font-family:inherit;line-height:1.6;resize:none;max-height:120px;padding:4px 0;overflow-y:auto;scrollbar-width:none}
     .asw-input::-webkit-scrollbar{display:none}
     .asw-input::placeholder{color:var(--asw-text-muted)}
 
     /* Send Button */
-    .asw-send{width:40px;height:40px;border:none;border-radius:50%;display:grid;place-items:center;background:var(--asw-primary);color:var(--asw-user-text);cursor:pointer;transition:all .3s cubic-bezier(.16,1,.3,1);flex-shrink:0}
-    .asw-send:hover{transform:scale(1.08);box-shadow:0 10px 22px -8px rgba(0,0,0,.4)}
+    .asw-send{width:40px;height:40px;border:none;border-radius:50%;display:grid;place-items:center;background:var(--asw-primary);color:#fff;cursor:pointer;transition:all .25s cubic-bezier(.16,1,.3,1);flex-shrink:0}
+    .asw-send:hover{transform:scale(1.08);box-shadow:0 4px 16px rgba(99,102,241,.35)}
     .asw-send:active{transform:scale(.92)}
-    .asw-send:disabled{cursor:not-allowed;opacity:.32;transform:none;box-shadow:none}
-    .asw-send svg{width:17px;height:17px}
+    .asw-send:disabled{cursor:not-allowed;opacity:.35;transform:none;box-shadow:none}
+    .asw-send svg{width:18px;height:18px}
 
     /* Powered By */
-    .asw-powered{text-align:center;padding:7px 0 0;font-size:10.5px;color:var(--asw-text-muted);font-weight:500}
+    .asw-powered{text-align:center;padding:6px 0 0;font-size:10.5px;color:var(--asw-text-muted);font-weight:500}
     .asw-powered[hidden]{display:none}
     .asw-powered a{color:var(--asw-primary);text-decoration:none;font-weight:600}
     .asw-powered a:hover{text-decoration:underline}
@@ -323,15 +284,51 @@
 
     /* ─── Empty State ─── */
     .asw-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px 24px;gap:16px}
-    .asw-empty-icon{width:62px;height:62px;border-radius:19px;background:var(--asw-header-bg);display:grid;place-items:center;color:#fff;box-shadow:0 12px 28px -10px rgba(0,0,0,.4);animation:asw-float 3.6s ease-in-out infinite}
-    .asw-empty-icon svg{width:30px;height:30px}
-    @keyframes asw-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)}}
+    .asw-empty-icon{width:64px;height:64px;border-radius:20px;background:linear-gradient(135deg,var(--asw-primary),var(--asw-secondary));display:grid;place-items:center;color:#fff;box-shadow:0 8px 24px rgba(99,102,241,.3);animation:asw-float 3s ease-in-out infinite}
+    .asw-empty-icon svg{width:32px;height:32px}
+    @keyframes asw-float{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
     .asw-empty-title{font-size:16px;font-weight:700;color:var(--asw-text)}
     .asw-empty-text{font-size:13px;color:var(--asw-text-secondary);max-width:260px;line-height:1.6}
 
     /* ─── Error Toast ─── */
-    .asw-toast{position:absolute;bottom:82px;left:16px;right:16px;padding:12px 16px 12px 18px;border-inline-start:3px solid var(--asw-error);border-radius:var(--asw-radius-sm);background:var(--asw-text);color:var(--asw-bg);font-size:13px;font-weight:500;text-align:center;box-shadow:0 16px 36px -12px rgba(0,0,0,.4);opacity:0;transform:translateY(8px);transition:all .3s;pointer-events:none;z-index:10}
+    .asw-toast{position:absolute;bottom:80px;left:16px;right:16px;padding:12px 16px;border-radius:var(--asw-radius-sm);background:var(--asw-error);color:#fff;font-size:13px;font-weight:500;text-align:center;box-shadow:0 8px 24px rgba(239,68,68,.3);opacity:0;transform:translateY(8px);transition:all .3s;pointer-events:none;z-index:10}
     .asw-toast.show{opacity:1;transform:translateY(0);pointer-events:auto}
+
+    /* ─── Streaming cursor ─── */
+    .asw-bubble.streaming::after{content:"▍";display:inline-block;color:var(--asw-primary);animation:asw-blink 1s steps(2) infinite;margin-inline-start:2px}
+    @keyframes asw-blink{0%,100%{opacity:1}50%{opacity:0}}
+
+    /* ─── Citations ─── */
+    .asw-citations{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--asw-border)}
+    .asw-citations-label{font-size:11px;color:var(--asw-text-secondary);align-self:center}
+    .asw-citation{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:500;color:var(--asw-primary);background:color-mix(in srgb,var(--asw-primary) 10%,transparent);border:1px solid color-mix(in srgb,var(--asw-primary) 25%,transparent);padding:3px 8px;border-radius:99px;text-decoration:none;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .2s}
+    .asw-citation:hover{background:color-mix(in srgb,var(--asw-primary) 18%,transparent)}
+    .asw-citation svg{width:11px;height:11px;flex:none}
+
+    /* ─── Handoff bar ─── */
+    .asw-handoff{margin-top:8px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+    .asw-handoff-label{font-size:12px;color:var(--asw-text-secondary);width:100%}
+    .asw-handoff-btn{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;font-family:inherit;padding:6px 12px;border-radius:99px;border:1px solid var(--asw-border);background:var(--asw-surface);color:var(--asw-text);cursor:pointer;transition:all .2s;text-decoration:none}
+    .asw-handoff-btn:hover{border-color:var(--asw-primary);color:var(--asw-primary)}
+    .asw-handoff-btn svg{width:13px;height:13px}
+
+    /* ─── Lead / contact form ─── */
+    .asw-rule-hint{margin-top:8px;padding:8px 10px;background:var(--asw-surface-2);border:1px solid var(--asw-border);border-radius:10px;font-size:12px;line-height:1.6;color:var(--asw-text-secondary)}
+    .asw-leadform{margin:8px 0;padding:12px;border-radius:var(--asw-radius-sm);border:1px solid var(--asw-border);background:var(--asw-surface)}
+    .asw-leadform-title{font-size:13px;font-weight:700;color:var(--asw-text);margin-bottom:2px}
+    .asw-leadform-desc{font-size:12px;color:var(--asw-text-secondary);margin-bottom:10px;line-height:1.5}
+    .asw-leadform .asw-field{margin-bottom:8px}
+    .asw-leadform input{width:100%;box-sizing:border-box;font-family:inherit;font-size:13px;padding:9px 12px;border-radius:10px;border:1px solid var(--asw-border);background:var(--asw-bg);color:var(--asw-text);outline:none;transition:border-color .2s}
+    .asw-leadform input:focus{border-color:var(--asw-primary)}
+    .asw-leadform input.invalid{border-color:var(--asw-error)}
+    .asw-leadform-submit{width:100%;justify-content:center;margin-top:2px}
+    .asw-leadform-note{font-size:11px;color:var(--asw-text-secondary);text-align:center;margin-top:6px}
+    .asw-leadform-success{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:600;color:var(--asw-success);padding:4px 0}
+    .asw-leadform-error{font-size:12px;color:var(--asw-error);margin-top:6px;display:none}
+    .asw-leadform-error.show{display:block}
+
+    /* ─── Error bubble ─── */
+    .asw-bubble.asw-error-bubble{border:1px solid color-mix(in srgb,var(--asw-error) 40%,transparent);background:color-mix(in srgb,var(--asw-error) 7%,var(--asw-surface))}
 
     /* ─── Responsive ─── */
     @media(max-width:480px){
@@ -342,9 +339,10 @@
       .asw-row{max-width:92%}
     }
     @media(prefers-reduced-motion:reduce){
-      .asw-panel,.asw-fab,.asw-suggestion,.asw-send,.asw-header-btn{transition:none}
-      .asw-typing-dot,.asw-badge-dot,.asw-fab-pulse,.asw-empty-icon{animation:none}
+      .asw-panel,.asw-fab,.asw-suggestion{transition:none}
+      .asw-typing-dot{animation:none}
       .asw-row{animation:none;opacity:1;transform:none}
+      .asw-empty-icon{animation:none}
     }
 
     /* ─── Font Size Variants ─── */
@@ -489,6 +487,17 @@
       this.options.configEndpoint = this.options.configEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "widget-config");
       this.options.eventsEndpoint = this.options.eventsEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "events");
       this.options.feedbackEndpoint = this.options.feedbackEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "feedback");
+      this.options.historyEndpoint = this.options.historyEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "history");
+      this.options.leadsEndpoint = this.options.leadsEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "leads");
+      this.options.handoffEndpoint = this.options.handoffEndpoint || getSiblingEndpoint(this.options.apiEndpoint, "handoff");
+      this.options.streamEndpoint = this.options.streamEndpoint || (this.options.apiEndpoint.replace(/\/$/, "") + "/stream/");
+      this.conversationId = "";
+      this.conversationToken = "";
+      this.lastMessageId = null;
+      this.abortStream = null;
+      this.previewMode = this.options.previewMode === true || /asw-preview/.test(
+        (window.location.search || "") + (window.location.hash || "")
+      );
       this.isOpen = false;
       this.isLoading = false;
       this.messageCount = 0;
@@ -531,6 +540,9 @@
               '</div>' +
             '</div>' +
             '<div class="asw-actions">' +
+              '<button class="asw-header-btn" id="asw-contact" type="button" aria-label="درخواست تماس" title="درخواست تماس">' +
+                ICONS.phone +
+              '</button>' +
               '<button class="asw-header-btn" id="asw-theme-toggle" type="button" aria-label="Toggle theme" title="تغییر تم">' +
                 '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>' +
               '</button>' +
@@ -552,7 +564,7 @@
               '<textarea class="asw-input" id="asw-input" rows="1" autocomplete="off" placeholder="' + escapeHtml(this.options.inputPlaceholder) + '" aria-label="پیام" style="height:auto;min-height:24px;max-height:120px"></textarea>' +
               '<button class="asw-send" id="asw-send" type="button" aria-label="ارسال" disabled>' + ICONS.send + '</button>' +
             '</div>' +
-            '<div class="asw-powered" id="asw-powered">Powered by <a href="https://ai-support.ir" target="_blank" rel="noopener">AI Support</a><span class="asw-resource-links" id="asw-resources"></span></div>' +
+            '<div class="asw-powered" id="asw-powered">Powered by <a href="https://ai-support.ir" target="_blank" rel="noopener">AI Support</a><span class="asw-resource-links" id="asw-resources"></span><a href="#" id="asw-clear-history" style="margin-inline-start:8px;opacity:.6;text-decoration:underline;font-size:11px">پاک کردن تاریخچه محلی</a></div>' +
           '</footer>' +
           /* Toast */
           '<div class="asw-toast" id="asw-toast"></div>' +
@@ -570,6 +582,7 @@
       this.fab = root.querySelector("#asw-fab");
       this.closeBtn = root.querySelector("#asw-close");
       this.themeToggle = root.querySelector("#asw-theme-toggle");
+      this.contactBtn = root.querySelector("#asw-contact");
       this.titleEl = root.querySelector("#asw-title");
       this.badgeText = root.querySelector("#asw-badge-text");
       this.subtitleEl = root.querySelector("#asw-subtitle");
@@ -587,7 +600,7 @@
       this.renderSuggestions();
       this.renderResources();
       this.bindEvents();
-      this.addMessage(this.options.greeting, "bot", true);
+      // Greeting is rendered by initialize() after history restore; don't double-add.
       this.updateSendState();
     }
 
@@ -603,10 +616,143 @@
     async initialize() {
       await this.loadConfig();
       this.sendEvent("widget_loaded");
+      this.restoreConversation();
+      var restored = this.restoreLocalHistory();
+      if (!restored) await this.restoreHistory();
+      if (this.messageCount === 0) this.addMessage(this.options.greeting, "bot", true);
       if (this.options.darkMode === "auto" && window.matchMedia) {
         var mq = window.matchMedia("(prefers-color-scheme: dark)");
         mq.addEventListener("change", () => this.applyTheme());
       }
+      if (this.previewMode) {
+        this.bindPreviewChannel();
+      }
+    }
+
+    /* ─── Light conversation memory (localStorage, 7 days, no DB pressure) ─── */
+    _localKey() { return "asw_history_" + (location.hostname || "local"); }
+    restoreLocalHistory() {
+      try {
+        var raw = localStorage.getItem(this._localKey());
+        if (!raw) return false;
+        var data = JSON.parse(raw);
+        if (!data || !Array.isArray(data.items) || !data.items.length) return false;
+        if (data.ts && (Date.now() - data.ts) > 7 * 24 * 3600 * 1000) {
+          localStorage.removeItem(this._localKey());
+          return false;
+        }
+        this.messages.innerHTML = "";
+        this.messageCount = 0;
+        var greeting = (this.options.greeting || "").trim();
+        var self = this;
+        var firstIsGreeting = data.items.length && data.items[0].role === "assistant" && data.items[0].content.trim() === greeting;
+        data.items.slice(-22).forEach(function (m, idx) {
+          var isGreet = firstIsGreeting && idx === 0;
+          self.addMessage(m.content, m.role === "assistant" ? "bot" : "user", isGreet, {
+            citations: m.citations || [],
+            skipFeedback: m.role !== "assistant" || isGreet,
+          });
+        });
+        var hint = document.createElement("div");
+        hint.className = "asw-rule-hint";
+        hint.textContent = firstIsGreeting ? "ادامه گفتگوی قبلی" : "ادامه گفتگوی قبلی — این تاریخچه فقط روی همین مرورگر ذخیره شده است.";
+        hint.style.marginBottom = "6px";
+        self.messages.prepend(hint);
+        self.scrollToBottom();
+        return true;
+      } catch (_) { return false; }
+    }
+    saveLocalHistory() {
+      try {
+        var items = [];
+        this.messages.querySelectorAll(".asw-row").forEach(function (row) {
+          var bubble = row.querySelector(".asw-bubble");
+          if (!bubble) return;
+          var isUser = row.classList.contains("user");
+          items.push({ role: isUser ? "user" : "assistant", content: bubble.textContent.slice(0, 800), citations: [] });
+        });
+        if (items.length > 22) items = items.slice(-22);
+        localStorage.setItem(this._localKey(), JSON.stringify({ ts: Date.now(), items: items }));
+      } catch (_) {}
+    }
+    clearLocalHistory() { try { localStorage.removeItem(this._localKey()); } catch (_) {} }
+
+    /* ─── Conversation persistence (#16) ─── */
+    restoreConversation() {
+      try {
+        this.conversationId = sessionStorage.getItem("asw_conversation_id") || "";
+        this.conversationToken = sessionStorage.getItem("asw_conversation_token") || "";
+      } catch (_) {}
+    }
+
+    saveConversation() {
+      try {
+        if (this.conversationId) sessionStorage.setItem("asw_conversation_id", this.conversationId);
+        if (this.conversationToken) sessionStorage.setItem("asw_conversation_token", this.conversationToken);
+      } catch (_) {}
+    }
+
+    async restoreHistory() {
+      /* Restore server-side history when the conversation already exists. */
+      if (!this.conversationId || !this.conversationToken) return;
+      // Greeting already rendered; anything beyond it means history exists.
+      if (this.messageCount > 1) return;
+      try {
+        var url = this.options.historyEndpoint + "?conversation_id=" + encodeURIComponent(this.conversationId);
+        var res = await fetch(url, { method: "GET", mode: "cors", credentials: "omit", headers: this.getHeaders() });
+        if (!res.ok) return;
+        var data = await res.json();
+        var msgs = Array.isArray(data.messages) ? data.messages : [];
+        if (!msgs.length) return;
+        this.messages.innerHTML = "";
+        this.addMessage(this.options.greeting, "bot", true);
+        msgs.forEach((m) => {
+          this.addMessage(m.content, m.role === "assistant" ? "bot" : "user", false, {
+            citations: m.role === "assistant" ? (m.citations || []) : [],
+            skipFeedback: true,
+          });
+        });
+      } catch (_) {}
+    }
+
+    /* ─── Live preview channel (admin customizer) ─── */
+    bindPreviewChannel() {
+      window.addEventListener("message", (e) => {
+        var data = e.data || {};
+        if (data.type === "aiss:config" && data.config) {
+          this.applyConfig(data.config);
+        }
+        if (data.type === "aiss:open") this.open();
+        if (data.type === "aiss:close") this.close();
+      });
+      try { parent.postMessage({ type: "aiss:preview-ready" }, "*"); } catch (_) {}
+    }
+
+    applyConfig(cfg) {
+      var self = this;
+      var strKeys = ["title", "subtitle", "greeting", "primaryColor", "secondaryColor", "accentColor",
+        "headerBadge", "botAvatarText", "inputPlaceholder", "themeMode", "darkMode", "fontFamily",
+        "fontSize", "bubbleStyle", "position", "logoUrl", "leadFormTitle", "leadFormDescription", "handoffMessage"];
+      strKeys.forEach(function (k) {
+        if (cfg[k] !== undefined && cfg[k] !== null) self.options[k] = String(cfg[k]);
+      });
+      ["panelWidth", "panelHeight", "borderRadius", "positionVerticalOffset", "positionHorizontalOffset"].forEach(function (k) {
+        var v = Number(cfg[k]);
+        if (!isNaN(v)) self.options[k] = v;
+      });
+      ["mobileFullscreen", "showPoweredBy", "showTimestamp", "showAvatar", "showFeedback",
+        "enableSounds", "enableAnimations", "showCitations", "enableLeadCapture", "enableHandoff"].forEach(function (k) {
+        if (cfg[k] !== undefined && cfg[k] !== null) self.options[k] = Boolean(cfg[k]);
+      });
+      if (Array.isArray(cfg.suggestions)) self.options.suggestions = cfg.suggestions;
+      if (cfg.iconType) self.options.iconType = cfg.iconType;
+      if (cfg.defaultIconChoice) self.options.defaultIconChoice = cfg.defaultIconChoice;
+      if (cfg.customIconUrl !== undefined) self.options.customIconUrl = cfg.customIconUrl;
+      this.applyVisuals();
+      this.renderSuggestions();
+      this.renderResources();
+      var fabMain = this.fab.querySelector(".asw-fab-icon-main");
+      if (fabMain) fabMain.innerHTML = this.getFabIconHtml();
     }
 
     /* ─── Load Config from API ─── */
@@ -637,6 +783,15 @@
           customIconUrl: "customIconUrl",
           suggestions: "suggestions", faqUrl: "faq_url", privacyUrl: "privacy_url",
           supportEmail: "support_email",
+          enableStreaming: "enable_streaming",
+          showCitations: "show_citations",
+          enableLeadCapture: "enable_lead_capture",
+          leadFormTitle: "lead_form_title",
+          leadFormDescription: "lead_form_description",
+          enableHandoff: "enable_handoff",
+          handoffTrigger: "handoff_trigger",
+          handoffMessage: "handoff_message",
+          handoffUrls: "handoff_urls",
         };
         var self = this;
         Object.keys(map).forEach(function (key) {
@@ -651,6 +806,7 @@
         this.applyVisuals();
         this.renderSuggestions();
         this.renderResources();
+        this.contactBtn.hidden = !this.options.enableLeadCapture;
         // Update FAB icon after config loads
         var fabMain = this.fab.querySelector(".asw-fab-icon-main");
         if (fabMain) fabMain.innerHTML = this.getFabIconHtml();
@@ -737,8 +893,7 @@
         this.panel.style.left = horizPx + "px";
         this.panel.style.right = "auto";
       } else {
-        // Panel extends left from FAB right edge
-        
+        // Panel extends left from FAB right edge        
         this.panel.style.right = horizPx + "px";
         this.panel.style.left = "auto";
       }
@@ -826,7 +981,25 @@
         }
       });
 
-      this.sendBtn.addEventListener("click", function () { self.send(); });
+      this.sendBtn.addEventListener("click", function () {
+        // During streaming the send button acts as a stop control.
+        if (self.isLoading && self.abortStream) {
+          self.abortStream.abort();
+          return;
+        }
+        self.send();
+      });
+
+      this.contactBtn.addEventListener("click", function () {
+        if (self.options.enableLeadCapture === false) return;
+        if (self.isLoading) return;
+        self.suggestions.hidden = true;
+        var wrapper = document.createElement("div");
+        wrapper.className = "asw-leadform-wrap";
+        self.messages.appendChild(wrapper);
+        wrapper.appendChild(self.buildLeadForm("widget_form", self._lastUserMessage || ""));
+        self.scrollToBottom();
+      });
 
       this.suggestions.addEventListener("click", function (e) {
         var btn = e.target.closest("[data-msg]");
@@ -835,6 +1008,19 @@
         self.autoGrowInput();
         self.send();
       });
+
+      var clearBtn = this.shadow.querySelector("#asw-clear-history");
+      if (clearBtn) {
+        clearBtn.addEventListener("click", function (e) {
+          e.preventDefault();
+          self.clearLocalHistory();
+          try { sessionStorage.removeItem("asw_conversation_id"); sessionStorage.removeItem("asw_conversation_token"); } catch(_){}
+          self.conversationId = ""; self.conversationToken = "";
+          self.messages.innerHTML = ""; self.messageCount = 0;
+          self.addMessage(self.options.greeting, "bot", true);
+          self.renderSuggestions(); self.showToast("تاریخچه محلی پاک شد.", 2500);
+        });
+      }
 
       // Code copy buttons
       this.shadow.addEventListener("click", function (e) {
@@ -914,7 +1100,8 @@
     }
 
     /* ─── Add Message ─── */
-    addMessage(text, sender, isGreeting) {
+    addMessage(text, sender, isGreeting, opts) {
+      opts = opts || {};
       var row = document.createElement("div");
       row.className = "asw-row " + sender + (isGreeting ? " no-anim" : "");
 
@@ -942,34 +1129,71 @@
       col.className = "asw-col";
 
       var bubble = document.createElement("div");
-      bubble.className = "asw-bubble";
+      bubble.className = "asw-bubble" + (opts.streaming ? " streaming" : "") + (opts.isError ? " asw-error-bubble" : "");
       bubble.innerHTML = sender === "bot" ? renderMarkdown(text) : escapeHtml(text);
 
       col.appendChild(bubble);
 
-      if (this.options.showTimestamp !== false) {
-        var time = document.createElement("div");
-        time.className = "asw-time";
-        time.textContent = formatTime();
-        col.appendChild(time);
+      var feedback = null;
+      var showFb = sender === "bot" && !isGreeting && !opts.skipFeedback && this.options.showFeedback !== false;
+      if (showFb) {
+        feedback = this.buildFeedbackEl(text);
+        col.appendChild(feedback);
       }
 
-      // Feedback buttons (only on bot messages, not greeting, when enabled)
-      if (sender === "bot" && !isGreeting && this.options.showFeedback !== false) {
-        var feedback = document.createElement("div");
-        feedback.className = "asw-feedback";
-        feedback.innerHTML =
-          '<button class="asw-fb-btn thumbs-up" type="button" data-action="helpful" aria-label="مفيد بود">' + ICONS.thumbUp + '</button>' +
-          '<button class="asw-fb-btn thumbs-down" type="button" data-action="not_helpful" aria-label="مفيد نبود">' + ICONS.thumbDown + '</button>';
-        feedback.setAttribute("data-question", (this._lastUserMessage || "").substring(0, 200));
-        feedback.setAttribute("data-answer", text.substring(0, 300));
-        col.appendChild(feedback);
+      var timeEl = null;
+      if (this.options.showTimestamp !== false && !opts.streaming) {
+        timeEl = document.createElement("div");
+        timeEl.className = "asw-time";
+        timeEl.textContent = formatTime();
+        col.appendChild(timeEl);
+      }
+
+      // Citations (#4)
+      if (sender === "bot" && this.options.showCitations && Array.isArray(opts.citations) && opts.citations.length) {
+        col.appendChild(this.buildCitations(opts.citations));
       }
 
       row.appendChild(col);
       this.messages.appendChild(row);
       this.messageCount++;
       this.scrollToBottom();
+      if (!opts.streaming) this.saveLocalHistory();
+      return { row: row, col: col, bubble: bubble, feedback: feedback, timeEl: timeEl };
+    }
+
+    buildFeedbackEl(answerPreview) {
+      var el = document.createElement("div");
+      el.className = "asw-feedback";
+      el.innerHTML =
+        '<button class="asw-fb-btn thumbs-up" type="button" data-action="helpful" aria-label="مفيد بود">' + ICONS.thumbUp + '</button>' +
+        '<button class="asw-fb-btn thumbs-down" type="button" data-action="not_helpful" aria-label="مفيد نبود">' + ICONS.thumbDown + '</button>';
+      el.setAttribute("data-question", (this._lastUserMessage || "").substring(0, 200));
+      el.setAttribute("data-answer", answerPreview.substring(0, 300));
+      return el;
+    }
+
+    buildCitations(citations) {
+      var wrap = document.createElement("div");
+      wrap.className = "asw-citations";
+      var label = document.createElement("span");
+      label.className = "asw-citations-label";
+      label.textContent = "منابع:";
+      wrap.appendChild(label);
+      citations.slice(0, 4).forEach((c) => {
+        var title = (c.title || "منبع").substring(0, 60);
+        var chip = document.createElement(c.url && isSafeUrl(c.url) ? "a" : "span");
+        chip.className = "asw-citation";
+        chip.title = c.page_number ? title + " — صفحه " + c.page_number : title;
+        chip.innerHTML = ICONS.link + '<span>' + escapeHtml(title) + (c.page_number ? " · ص" + escapeHtml(String(c.page_number)) : "") + '</span>';
+        if (c.url && isSafeUrl(c.url)) {
+          chip.href = c.url;
+          chip.target = "_blank";
+          chip.rel = "noopener noreferrer";
+        }
+        wrap.appendChild(chip);
+      });
+      return wrap;
     }
 
     /* ─── Feedback Handler ─── */
@@ -996,23 +1220,29 @@
 
       feedbackDiv.dataset.sent = "true";
 
-      // Send to backend
-      this.sendFeedback(isHelpful, feedbackDiv.dataset.question || "", feedbackDiv.dataset.answer || "");
+      // Send to backend (with per-message binding when available)
+      this.sendFeedback(isHelpful, feedbackDiv.dataset.question || "", feedbackDiv.dataset.answer || "", feedbackDiv.dataset.messageId || null);
     }
 
-    sendFeedback(helpful, question, answerPreview) {
+    sendFeedback(helpful, question, answerPreview, messageId) {
       if (!this.options.feedbackEndpoint) return;
+      var body = {
+        helpful: helpful,
+        question: question,
+        answer_preview: answerPreview,
+        session_id: this.options.sessionId,
+      };
+      if (messageId) {
+        body.message_id = Number(messageId);
+        body.conversation_id = this.conversationId;
+        body.conversation_token = this.conversationToken;
+      }
       fetch(this.options.feedbackEndpoint, {
         method: "POST",
         mode: "cors",
         credentials: "omit",
         headers: this.getHeaders(),
-        body: JSON.stringify({
-          helpful: helpful,
-          question: question,
-          answer_preview: answerPreview,
-          session_id: this.options.sessionId,
-        }),
+        body: JSON.stringify(body),
       }).catch(function () {});
     }
 
@@ -1034,6 +1264,13 @@
       this.typing.hidden = !loading;
       this.input.disabled = loading;
       this.input.placeholder = loading ? "در حال پاسخ‌دهی..." : this.options.inputPlaceholder;
+      if (loading) {
+        this.sendBtn.classList.add("asw-stop");
+        this.sendBtn.innerHTML = ICONS.stop;
+      } else {
+        this.sendBtn.classList.remove("asw-stop");
+        this.sendBtn.innerHTML = ICONS.send;
+      }
       this.updateSendState();
       if (loading) this.scrollToBottom();
     }
@@ -1070,18 +1307,311 @@
       this.playSound("send");
 
       try {
-        var result = await this.callBackend(msg);
-        this.addMessage(result.answer, "bot");
+        if (this.options.enableStreaming && !this.previewMode) {
+          await this.streamChat(msg);
+        } else {
+          var result = await this.callBackend(msg);
+          this.handleAnswerResult(result.answer, {});
+        }
         this.playSound("receive");
       } catch (err) {
         this.sendEvent("fallback_triggered", { message: err && err.message || "unknown" });
         var errMsg = err && err.userMessage ? err.userMessage : "متأسفانه در حال حاضر قادر به پاسخگویی نیستم. لطفاً دوباره تلاش کنید.";
-        this.addMessage(errMsg, "bot");
+        this.addMessage(errMsg, "bot", false, { isError: true });
         this.showToast(errMsg, 5000);
       } finally {
         this.setLoading(false);
         this.input.focus();
       }
+    }
+
+    handleAnswerResult(answer, meta) {
+      meta = meta || {};
+      var els = this.addMessage(answer, "bot", false, {
+        citations: meta.citations || [],
+        skipFeedback: false,
+      });
+      if (els.feedback && meta.message_id) {
+        els.feedback.setAttribute("data-message-id", String(meta.message_id));
+      }
+      if (meta.fallback) {
+        this.maybeShowHandoff(answer);
+      }
+      return els;
+    }
+
+    /* ─── Streaming (SSE) ─── */
+    async streamChat(message) {
+      var self = this;
+      this.abortStream = new AbortController();
+      var timeout = setTimeout(function () { self.abortStream.abort(); }, Number(this.options.timeoutMs) || 60000);
+
+      var els = null;
+      var streamedText = "";
+      var firstTokenSeen = false;
+
+      var finishMeta = null;
+      try {
+        await new Promise(function (resolve, reject) {
+          fetch(self.options.streamEndpoint, {
+            method: "POST",
+            mode: "cors",
+            credentials: "omit",
+            headers: self.getHeaders(),
+            body: JSON.stringify({
+              message: message,
+              conversation_id: self.conversationId,
+              page_url: (window.location && window.location.href || "").substring(0, 1000),
+            }),
+            signal: self.abortStream.signal,
+          }).then(function (res) {
+            if (!res.ok) {
+              res.json().catch(function () { return {}; }).then(function (data) {
+                var e = new Error(data.message || data.error || "Stream failed");
+                e.userMessage = data.message || (res.status >= 500
+                  ? "سرویس موقتاً در دسترس نیست. لطفاً لحظاتی بعد دوباره تلاش کنید."
+                  : "لطفاً پیام خود را بررسی و دوباره ارسال کنید.");
+                reject(e);
+              });
+              return;
+            }
+            if (!res.body || !res.body.getReader) {
+              // No SSE support (older proxy) — fall back to JSON chat.
+              resolve(null);
+              return;
+            }
+            var reader = res.body.getReader();
+            var decoder = new TextDecoder();
+            var buffer = "";
+            function pump() {
+              reader.read().then(function (chunk) {
+                if (chunk.done) { resolve(null); return; }
+                buffer += decoder.decode(chunk.value, { stream: true });
+                var events = buffer.split("\n\n");
+                buffer = events.pop();
+                events.forEach(function (raw) {
+                  var name = "message";
+                  var dataLines = [];
+                  raw.split("\n").forEach(function (line) {
+                    if (line.indexOf("event:") === 0) name = line.slice(6).trim();
+                    else if (line.indexOf("data:") === 0) dataLines.push(line.slice(5).trim());
+                  });
+                  if (!dataLines.length) return;
+                  var data;
+                  try { data = JSON.parse(dataLines.join("\n")); } catch (_) { return; }
+                  if (name === "meta") {
+                    if (data.conversation_id) self.conversationId = data.conversation_id;
+                    if (data.conversation_token) self.conversationToken = data.conversation_token;
+                    self.saveConversation();
+                  } else if (name === "token") {
+                    streamedText += (data.t || "");
+                    if (!firstTokenSeen) {
+                      firstTokenSeen = true;
+                      els = self.addMessage("", "bot", false, { streaming: true, skipFeedback: true });
+                    }
+                    els.bubble.innerHTML = renderMarkdown(streamedText);
+                    self.scrollToBottom();
+                  } else if (name === "done") {
+                    finishMeta = data;
+                  } else if (name === "error") {
+                    var ee = new Error(data.message || "stream error");
+                    ee.userMessage = data.message || "خطا در دریافت پاسخ.";
+                    reject(ee);
+                  }
+                });
+                pump();
+              }).catch(function (e) { reject(e); });
+            }
+            pump();
+          }).catch(reject);
+        });
+
+        if (streamedText && els) {
+          // Re-render the final bubble with complete markdown + citations.
+          els.bubble.classList.remove("streaming");
+          this.handleAnswerResultFromEl(els, streamedText, finishMeta || {});
+        } else if (!streamedText) {
+          // SSE stream empty/unsupported → classic JSON roundtrip.
+          var result = await this.callBackend(message);
+          this.handleAnswerResult(result.answer, {});
+        }
+      } catch (err) {
+        if (err.name === "AbortError") {
+          // User stop or timeout: keep partial text if meaningful.
+          if (streamedText && els) {
+            els.bubble.classList.remove("streaming");
+            this.handleAnswerResultFromEl(els, streamedText + " …", finishMeta || {});
+          } else {
+            var te = new Error("Timeout");
+            te.userMessage = "پاسخ‌دهی بیش از حد طول کشید. لطفاً دوباره تلاش کنید.";
+            throw te;
+          }
+        } else {
+          throw err;
+        }
+      } finally {
+        clearTimeout(timeout);
+        this.abortStream = null;
+      }
+    }
+
+    handleAnswerResultFromEl(els, answer, meta) {
+      els.bubble.innerHTML = renderMarkdown(answer);
+      if (this.options.showCitations && Array.isArray(meta.citations) && meta.citations.length) {
+        els.col.appendChild(this.buildCitations(meta.citations));
+      }
+      if (els.timeEl === null && this.options.showTimestamp !== false) {
+        var t = document.createElement("div");
+        t.className = "asw-time";
+        t.textContent = formatTime();
+        els.col.appendChild(t);
+      }
+      if (this.options.showFeedback !== false && els.feedback) {
+        els.feedback.setAttribute("data-question", (this._lastUserMessage || "").substring(0, 200));
+        els.feedback.setAttribute("data-answer", answer.substring(0, 300));
+        if (meta.message_id) els.feedback.setAttribute("data-message-id", String(meta.message_id));
+        els.col.appendChild(els.feedback);
+      }
+      if (meta.fallback) this.maybeShowHandoff(answer);
+      this.scrollToBottom();
+    }
+
+    /* ─── Human Handoff (#12) ─── */
+    maybeShowHandoff(answerText) {
+      var trigger = this.options.handoffTrigger || "low_confidence";
+      if (!this.options.enableHandoff || trigger === "off" || this.previewMode) return;
+      if (this._handoffShown) return;
+      this._handoffShown = true;
+
+      var self = this;
+      var lastRow = this.messages.lastElementChild;
+      if (!lastRow) return;
+      var bar = document.createElement("div");
+      bar.className = "asw-handoff";
+      var label = document.createElement("span");
+      label.className = "asw-handoff-label";
+      label.textContent = this.options.handoffMessage;
+      bar.appendChild(label);
+
+      var urls = this.options.handoffUrls || {};
+      var channels = [
+        { key: "contact_form", url: urls.contact_form, label: "فرم تماس", icon: ICONS.user },
+        { key: "telegram", url: urls.telegram, label: "تلگرام", icon: ICONS.link },
+        { key: "whatsapp", url: urls.whatsapp, label: "واتساپ", icon: ICONS.phone },
+      ];
+      var anyChannel = false;
+      channels.forEach(function (ch) {
+        if (!ch.url || !isSafeUrl(ch.url)) return;
+        anyChannel = true;
+        var a = document.createElement("a");
+        a.className = "asw-handoff-btn";
+        a.href = ch.url;
+        a.target = "_blank";
+        a.rel = "noopener noreferrer";
+        a.innerHTML = ch.icon + escapeHtml(ch.label);
+        a.addEventListener("click", function () { self.logHandoff(ch.key, answerText); });
+        bar.appendChild(a);
+      });
+      if (anyChannel) {
+        lastRow.appendChild(bar);
+        this.scrollToBottom();
+      }
+      // Always offer the email form as the guaranteed channel.
+      if (this.options.enableLeadCapture) {
+        lastRow.appendChild(this.buildLeadForm("handoff_email", answerText));
+        this.scrollToBottom();
+      }
+    }
+
+    logHandoff(channel, question) {
+      if (!this.options.handoffEndpoint) return;
+      fetch(this.options.handoffEndpoint, {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          channel: channel,
+          message: (question || this._lastUserMessage || "").substring(0, 2000),
+          conversation_id: this.conversationId,
+          conversation_token: this.conversationToken,
+        }),
+      }).catch(function () {});
+    }
+
+    /* ─── Lead Capture Form (#11) ─── */
+    buildLeadForm(source, question) {
+      var self = this;
+      var form = document.createElement("div");
+      form.className = "asw-leadform";
+      form.innerHTML =
+        '<div class="asw-leadform-title">' + escapeHtml(this.options.leadFormTitle) + '</div>' +
+        '<div class="asw-leadform-desc">' + escapeHtml(this.options.leadFormDescription) + '</div>' +
+        '<div class="asw-field"><input type="text" name="name" placeholder="نام شما" maxlength="200" autocomplete="name"></div>' +
+        '<div class="asw-field"><input type="email" name="email" placeholder="ایمیل (اختیاری)" maxlength="254" autocomplete="email" dir="ltr"></div>' +
+        '<div class="asw-field"><input type="tel" name="phone" placeholder="شماره تماس (اختیاری)" maxlength="30" autocomplete="tel" dir="ltr"></div>' +
+        '<input type="text" name="website" value="" tabindex="-1" autocomplete="off" aria-hidden="true" style="position:absolute;left:-9999px;height:0;width:0">' +
+        '<button type="button" class="asw-send-btn asw-leadform-submit">' + ICONS.send + '<span>ارسال</span></button>' +
+        '<div class="asw-leadform-error"></div>';
+
+      var nameInput = form.querySelector('[name="name"]');
+      var emailInput = form.querySelector('[name="email"]');
+      var phoneInput = form.querySelector('[name="phone"]');
+      var honeypot = form.querySelector('[name="website"]');
+      var submitBtn = form.querySelector(".asw-leadform-submit");
+      var errorEl = form.querySelector(".asw-leadform-error");
+
+      function fail(message) {
+        errorEl.textContent = message;
+        errorEl.classList.add("show");
+      }
+
+      submitBtn.addEventListener("click", function () {
+        errorEl.classList.remove("show");
+        var name = nameInput.value.trim();
+        var email = emailInput.value.trim();
+        var phone = phoneInput.value.trim();
+        [nameInput, emailInput, phoneInput].forEach(function (i) { i.classList.remove("invalid"); });
+        if (name.length < 2) { nameInput.classList.add("invalid"); fail("لطفاً نام خود را وارد کنید."); return; }
+        if (!email && !phone) {
+          emailInput.classList.add("invalid");
+          phoneInput.classList.add("invalid");
+          fail("حداقل یکی از ایمیل یا شماره تماس را وارد کنید.");
+          return;
+        }
+        if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { emailInput.classList.add("invalid"); fail("ایمیل واردشده معتبر نیست."); return; }
+        if (phone && !/^[+0-9][0-9\s\-()]{6,24}$/.test(phone.replace(/\s/g, ""))) { phoneInput.classList.add("invalid"); fail("شماره تماس معتبر نیست."); return; }
+
+        submitBtn.disabled = true;
+        fetch(self.options.leadsEndpoint, {
+          method: "POST",
+          mode: "cors",
+          credentials: "omit",
+          headers: self.getHeaders(),
+          body: JSON.stringify({
+            name: name,
+            email: email,
+            phone: phone,
+            note: (question || self._lastUserMessage || "").substring(0, 2000),
+            conversation_id: self.conversationId,
+            conversation_token: self.conversationToken,
+            website: honeypot ? honeypot.value : "",
+          }),
+        }).then(function (res) { return res.json().catch(function () { return {}; }); })
+          .then(function (data) {
+            if (data && data.ok !== false) {
+              form.innerHTML = '<div class="asw-leadform-success">' + ICONS.check + '<span>اطلاعات شما ثبت شد. به‌زودی با شما تماس می‌گیریم.</span></div>';
+            } else {
+              fail((data && data.message) || "ثبت اطلاعات ناموفق بود. دوباره تلاش کنید.");
+              submitBtn.disabled = false;
+            }
+          })
+          .catch(function () {
+            fail("خطای شبکه. دوباره تلاش کنید.");
+            submitBtn.disabled = false;
+          });
+      });
+      return form;
     }
 
     /* ─── API Call ─── */
@@ -1092,7 +1622,11 @@
         var res = await fetch(this.options.apiEndpoint, {
           method: "POST", mode: "cors", credentials: "omit",
           headers: this.getHeaders(),
-          body: JSON.stringify({ message: message }),
+          body: JSON.stringify({
+            message: message,
+            conversation_id: this.conversationId,
+            page_url: (window.location && window.location.href || "").substring(0, 1000),
+          }),
           signal: controller.signal,
         });
         var data = {};
@@ -1106,7 +1640,17 @@
         }
         var answer = data.answer || data.reply || data.response || data.message;
         if (typeof answer !== "string" || !answer.trim()) throw new Error("Empty answer");
-        return { answer: answer.trim() };
+        if (data.conversation_id) {
+          this.conversationId = data.conversation_id;
+          this.conversationToken = data.conversation_token || this.conversationToken;
+          this.saveConversation();
+        }
+        return {
+          answer: answer.trim(),
+          citations: data.citations || [],
+          message_id: data.message_id,
+          fallback: data.fallback || false,
+        };
       } catch (err) {
         if (err.name === "AbortError") {
           var te = new Error("Timeout");
@@ -1135,6 +1679,7 @@
     if (scriptConfig.widgetKey) options.widgetPublicKey = scriptConfig.widgetKey;
     if (scriptConfig.title) options.title = scriptConfig.title;
     if (scriptConfig.primaryColor) options.primaryColor = scriptConfig.primaryColor;
+    if (scriptConfig.preview === "1" || scriptConfig.preview === "true") options.previewMode = true;
     window._aiWidget = new AISupportWidget(options);
   }
 

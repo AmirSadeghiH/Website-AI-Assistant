@@ -1,0 +1,42 @@
+{% extends "panel/base.html" %}
+{% block title %}سرنخ‌ها{% endblock %}
+{% block page_title %}سرنخ‌ها (Leads){% endblock %}
+{% block page_sub %}اطلاعات تماسی که کاربران از طریق ویجت ثبت کرده‌اند — مستقیم اقدام کنید{% endblock %}
+
+{% block topbar_actions %}
+  <div class="row" style="gap:6px">
+    <a class="btn btn-ghost btn-sm {% if not source %}active{% endif %}" href="?">همه</a>
+    <a class="btn btn-ghost btn-sm {% if source == 'widget_form' %}active{% endif %}" href="?source=widget_form">فرم ویجت</a>
+    <a class="btn btn-ghost btn-sm {% if source == 'handoff_email' %}active{% endif %}" href="?source=handoff_email">ارجاع ایمیلی</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>نام</th><th>ایمیل</th><th>تلفن</th><th>منشأ</th><th>یادداشت / سؤال</th><th>مکالمه</th><th>اقدام</th><th>زمان</th></tr></thead>
+      <tbody>
+        {% for lead in items %}
+          <tr>
+            <td><strong>{{ lead.name }}</strong></td>
+            <td class="mono small">{{ lead.email|default:"—" }}</td>
+            <td class="mono small">{{ lead.phone|default:"—" }}</td>
+            <td><span class="badge-pill gray">{{ lead.get_source_display|default:lead.source }}</span></td>
+            <td class="small muted" style="max-width:240px">{{ lead.note|truncatechars:80|default:"—" }}</td>
+            <td>{% if lead.conversation %}<a class="table-link" href="{% url 'panel:conversation-detail' lead.conversation.pk %}">#{{ lead.conversation.pk }}</a>{% else %}—{% endif %}</td>
+            <td>
+              <div class="row" style="gap:4px">
+                {% if lead.email %}<a class="btn btn-ghost btn-sm" href="mailto:{{ lead.email }}">ایمیل</a>{% endif %}
+                {% if lead.phone %}<a class="btn btn-ghost btn-sm" href="tel:{{ lead.phone }}">تماس</a>{% endif %}
+                <form method="post" action="{% url 'panel:leads-update' lead.pk %}" style="display:inline" onsubmit="return confirm('حذف شود؟')">{% csrf_token %}<input type="hidden" name="action" value="delete"><button class="btn btn-danger btn-sm" type="submit">حذف</button></form>
+              </div>
+            </td>
+            <td class="small muted">{{ lead.created_at|date:"Y/m/d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8"><div class="empty"><div class="empty-icon">🎯</div>هنوز سرنخی ثبت نشده — فرم ویجت یا درخواست پشتیبانی که ثبت شود اینجا می‌آید.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

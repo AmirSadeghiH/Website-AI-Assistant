@@ -1,0 +1,45 @@
+{% extends "panel/base.html" %}
+{% block title %}درخواست‌های پشتیبانی{% endblock %}
+{% block page_title %}درخواست‌های پشتیبانی انسانی{% endblock %}
+{% block page_sub %}هر درخواست را پیگیری کنید — دکمه‌ها واقعا وضعیت را تغییر می‌دهند{% endblock %}
+
+{% block content %}
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>کانال</th><th>سؤال / پیام</th><th>مکالمه</th><th>وضعیت</th><th>اقدام</th><th>زمان</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>
+              {% if item.channel == "email" %}<span class="badge-pill info">ایمیل</span>
+              {% elif item.channel == "telegram" %}<span class="badge-pill ok">تلگرام</span>
+              {% elif item.channel == "whatsapp" %}<span class="badge-pill ok">واتساپ</span>
+              {% else %}<span class="badge-pill gray">فرم تماس</span>{% endif %}
+            </td>
+            <td style="max-width:300px" class="small">{{ item.question|truncatechars:110 }}</td>
+            <td>{% if item.conversation %}<a class="table-link" href="{% url 'panel:conversation-detail' item.conversation.pk %}">#{{ item.conversation.pk }}</a>{% else %}—{% endif %}</td>
+            <td>
+              {% if item.status == "done" %}<span class="badge-pill ok">انجام شد</span>
+              {% elif item.status == "in_progress" %}<span class="badge-pill info">در جریان</span>
+              {% else %}<span class="badge-pill warn">جدید</span>{% endif %}
+            </td>
+            <td>
+              <div class="row" style="gap:4px">
+                {% if item.status == "new" %}
+                  <form method="post" action="{% url 'panel:handoff-update' item.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="progress"><button class="btn btn-ghost btn-sm" type="submit">شروع رسیدگی</button></form>
+                {% endif %}
+                {% if item.status != "done" %}
+                  <form method="post" action="{% url 'panel:handoff-update' item.pk %}" style="display:inline">{% csrf_token %}<input type="hidden" name="action" value="done"><button class="btn btn-primary btn-sm" type="submit">انجام شد</button></form>
+                {% endif %}
+                <form method="post" action="{% url 'panel:handoff-update' item.pk %}" style="display:inline" onsubmit="return confirm('حذف شود؟')">{% csrf_token %}<input type="hidden" name="action" value="delete"><button class="btn btn-danger btn-sm" type="submit">حذف</button></form>
+              </div>
+            </td>
+            <td class="small muted">{{ item.created_at|date:"Y/m/d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="6"><div class="empty"><div class="empty-icon">🤝</div>درخواستی ثبت نشده — وقتی کاربر «اتصال به کارشناس» بزند اینجا می‌آید.</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

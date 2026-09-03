@@ -75,3 +75,47 @@ class OpenRouterLLM:
         if not content:
             raise RuntimeError("LLM returned an empty response.")
         return str(content).strip()[:12000]
+
+    def stream_generate(self, prompt: str, chunk_size: int = 24):
+        """Yield the answer in small text chunks (SSE-friendly).
+
+        Uses the OpenAI-compatible streaming API. Text is buffered into
+        ``chunk_size``-character groups so a widget does not re-render for
+        every single token. Raises the same errors as ``generate`` — the
+        streaming view converts them into SSE error events.
+        """
+        stream = self.client.chat.completions.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": self.system_prompt[:8000]},
+                {"role": "user", "content": prompt[:16000]},
+            ],
+            temperature=self.temperature,
+            max_tokens=self.max_tokens,
+            stream=True,
+        )
+        buffer = ""
+        emitted = False
+        try:
+            for event in stream:
+                choice = event.choices[0] if getattr(event, "choices", None) else None
+                delta = getattr(choice, "delta", None) if choice else None
+                piece = getattr(delta, "content", None) if delta else None
+                if not piece:
+                    continue
+                emitted = True
+                buffer += str(piece)
+                while len(buffer) >= chunk_size:
+                    yield buffer[:chunk_size]
+                    buffer = buffer[chunk_size:]
+        finally:
+            close = getattr(stream, "close", None)
+            if close is not None:
+                try:
+                    close()
+                except Exception:
+                    pass
+        if buffer:
+            yield buffer
+        if not emitted:
+            raise RuntimeError("LLM returned an empty response.")

@@ -1,0 +1,52 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>پیش‌نمایش ویجت</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+  <style>
+    *{box-sizing:border-box}
+    body { margin: 0; font-family: "Vazirmatn", "Segoe UI", Tahoma, sans-serif; background:#f3f4f9; color:#191c2e; }
+    .demo-page { padding: 28px 24px 18px; max-width: 680px; }
+    .eyebrow{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:800;color:#4f46e5;background:#eef0ff;border:1px solid #e7e9f6;border-radius:999px;padding:4px 10px;margin-bottom:10px}
+    .eyebrow i{width:6px;height:6px;border-radius:99px;background:#10b981;display:inline-block}
+    .demo-page h1 { font-size: 20px; margin: 0 0 6px; letter-spacing:-.01em; line-height:1.4; }
+    .demo-page p { color: #62688a; line-height: 1.8; font-size: 13.5px; max-width:56ch; }
+    .demo-block { margin-top: 18px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .demo-card { background: #fff; border: 1px solid #e7e9f6; border-radius: 14px; padding: 13px 12px; font-size: 12px; color: #62688a; box-shadow: 0 1px 2px rgba(20,22,39,.05); line-height:1.6; }
+    .demo-card strong { display: block; color: #191c2e; font-size: 12.5px; margin-bottom: 3px; }
+    .hint{margin-top:12px;background:#fff;border:1px dashed #e7e9f6;border-radius:12px;padding:9px 11px;font-size:12px;color:#62688a}
+    .hint strong{color:#191c2e}
+    .arw{margin-top:10px;font-size:11.5px;font-weight:800;color:#4f46e5;display:inline-flex;align-items:center;gap:6px;background:#eef0ff;border:1px solid #e7e9f6;border-radius:999px;padding:6px 10px}
+  </style>
+</head>
+<body>
+  <div class="demo-page">
+    <span class="eyebrow"><i></i> پیش‌نمایش زنده · روی سایتِ فرضی مشتری</span>
+    <h1>سایت نمونه مشتری</h1>
+    <p>
+      این یک صفحه‌ی واقعیِ شبیه‌سازی‌شده است تا رفتار ویجت را در محیط مشتری ببینید.
+      هر تغییری در فرم طراحی، همین‌جا بدون رفرش اعمال می‌شود — ویجت را باز کنید و امتحان کنید.
+    </p>
+    <div class="demo-block">
+      <div class="demo-card"><strong>محصولات</strong>معرفی محصول و قیمت‌گذاری — از دانشِ سایت جواب می‌گیرد.</div>
+      <div class="demo-card"><strong>پشتیبانی</strong>پرسش‌های رایج را فوری پاسخ می‌دهد؛ اگر ندانست، به انسان وصل می‌کند.</div>
+      <div class="demo-card"><strong>تماس</strong>فرم سرنخ + تلگرام/واتساپ/ایمیل برای پیگیری کارشناس.</div>
+    </div>
+    <div class="hint"><strong>راهنما:</strong> هر ۵ تبِ فرمِ سمتِ چپ زنده است — رنگ، عنوان، حباب‌ها، جایگاه و سرنخ را عوض کنید.</div>
+    <div class="arw">ویجت همین‌جاست ↓ — روی دکمه‌ی پایین گوشه بزنید</div>
+  </div>
+  <!-- Preview widget instance: data-preview disables network calls -->
+  {% if request.GET.theme == "onyx" %}
+    <script src="{% static 'widget/widget-onyx.js' %}" data-preview="1"></script>
+  {% elif request.GET.theme == "linen" %}
+    <script src="{% static 'widget/widget-linen.js' %}" data-preview="1"></script>
+  {% else %}
+    <script src="{% static 'widget/widget.js' %}" data-preview="1"></script>
+  {% endif %}
+</body>
+</html>

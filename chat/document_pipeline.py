@@ -18,6 +18,10 @@ from django.utils import timezone
 
 from .models import Document
 
+CHUNKS_PATH = Path(settings.BASE_DIR) / "Data" / "chunks.json"
+METADATA_PATH = Path(settings.BASE_DIR) / "Data" / "metadata.json"
+EMBEDDINGS_PATH = Path(settings.BASE_DIR) / "Data" / "embeddings.npy"
+
 
 SUPPORTED_TYPES = {
     ".pdf": "pdf",
@@ -159,30 +163,40 @@ def _write_atomic(path, writer):
 
 
 def rebuild_document_embeddings(document):
-    path = Path(document.file.path)
-    if path.stat().st_size > MAX_DOCUMENT_BYTES:
-        raise ValueError("حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.")
+    from rag.build_embeddings import EmbeddingBuilder
 
-    file_type = detect_file_type(path.name)
-    if not file_type:
-        raise ValueError("فرمت فایل پشتیبانی نمی‌شود. فقط PDF، TXT و DOCX مجاز هستند.")
-    sniffed = sniff_file_type(path)
-    if sniffed is None or sniffed != file_type:
-        raise ValueError(
-            "محتوای فایل با پسوند آن هم‌خوانی ندارد و پردازش نمی‌شود."
-        )
-    content_hash = sha256_file(path)
+    if document.source_type == "crawl" or (document.source_text and not document.file):
+        # Crawled pages carry their text inline — no file, no sniffing.
+        text = clean_text(document.source_text or "")
+        if not text:
+            raise ValueError("محتوای صفحه‌ی خزیده‌شده خالی است و پردازش نمی‌شود.")
+        file_type = "txt"
+        content_hash = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        pages = [{"page_number": 1, "text": text}]
+    else:
+        path = Path(document.file.path)
+        if path.stat().st_size > MAX_DOCUMENT_BYTES:
+            raise ValueError("حجم فایل نباید بیشتر از ۲۵ مگابایت باشد.")
+
+        file_type = detect_file_type(path.name)
+        if not file_type:
+            raise ValueError("فرمت فایل پشتیبانی نمی‌شود. فقط PDF، TXT و DOCX مجاز هستند.")
+        sniffed = sniff_file_type(path)
+        if sniffed is None or sniffed != file_type:
+            raise ValueError(
+                "محتوای فایل با پسوند آن هم‌خوانی ندارد و پردازش نمی‌شود."
+            )
+        content_hash = sha256_file(path)
+        pages = extract_document(path, file_type)
+        if not pages:
+            raise ValueError("از فایل انتخاب‌شده متن قابل استفاده‌ای استخراج نشد.")
+
     if Document.objects.filter(
         content_hash=content_hash,
     ).exclude(pk=document.pk).exists():
-        raise ValueError("این فایل قبلاً در پایگاه دانش پردازش شده است.")
-
-    pages = extract_document(path, file_type)
-    if not pages:
-        raise ValueError("از فایل انتخاب‌شده متن قابل استفاده‌ای استخراج نشد.")
+        raise ValueError("این محتوا قبلاً در پایگاه دانش پردازش شده است.")
 
     document_key = f"uploaded-document-{document.pk}"
-    from rag.build_embeddings import EmbeddingBuilder
 
     builder = EmbeddingBuilder()
     chunks, metadata = builder.chunk_doc(pages, document_key)
@@ -213,6 +227,8 @@ def rebuild_document_embeddings(document):
             item["document_id"] = document.pk
             item["document_title"] = document.title
             item["source_type"] = file_type
+            if document.source_url:
+                item["url"] = document.source_url[:1000]
 
         final_chunks = kept_chunks + chunks
         final_metadata = kept_metadata + metadata
@@ -316,13 +332,22 @@ def process_document(document_id):
 
 
 def enqueue_documents(document_ids):
-    documents = Document.objects.filter(pk__in=document_ids).exclude(
-        status__in=("queued", "processing"),
-    )
+    documents = Document.objects.filter(pk__in=document_ids)
+    # Don't spin a worker if the doc is already being processed — but
+    # "queued" docs reported as stuck must be re-enqueued, so only skip
+    # "processing". Previous filter excluded "queued" which made retry a no-op.
+    if not documents.exists():
+        return 0
+    # Only skip truly in-flight work.
+    quarantined = documents.filter(status="processing")
+    if quarantined.exists():
+        # Still mark the requested ids as queued; the worker will pick them up
+        # after the current run, but don't spawn a duplicate process now.
+        pass
     ids = list(documents.values_list("pk", flat=True))
     if not ids:
         return 0
-    documents.update(status="queued", error_message="", updated_at=timezone.now())
+    Document.objects.filter(pk__in=ids).update(status="queued", error_message="", updated_at=timezone.now())
 
     command = [
         sys.executable,
@@ -332,11 +357,15 @@ def enqueue_documents(document_ids):
     ]
     log_path = Path(settings.BASE_DIR) / "embedding_jobs.log"
     log_handle = log_path.open("a", encoding="utf-8")
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
     kwargs = {
         "cwd": settings.BASE_DIR,
         "stdin": subprocess.DEVNULL,
         "stdout": log_handle,
         "stderr": subprocess.STDOUT,
+        "env": env,
     }
     if os.name == "nt":
         kwargs["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
@@ -351,3 +380,50 @@ def enqueue_documents(document_ids):
 
 def enqueue_document(document_id):
     return enqueue_documents([document_id])
+
+
+def delete_document_artifacts(document):
+    """Remove a document, its media file and rebuild the corpus without its
+    chunks (used by the knowledge panel's delete action)."""
+    document_key = f"uploaded-document-{document.pk}"
+    media_file = document.file
+    with corpus_lock(timeout=30):
+        old_chunks = json.loads(CHUNKS_PATH.read_text(encoding="utf-8")) if CHUNKS_PATH.exists() else []
+        old_metadata = json.loads(METADATA_PATH.read_text(encoding="utf-8")) if METADATA_PATH.exists() else []
+        keep = [
+            index
+            for index, item in enumerate(old_metadata)
+            if str(item.get("document_id")) != str(document.pk)
+            and item.get("doc_id") != document_key
+        ]
+        if len(keep) != len(old_metadata):
+            new_chunks = [old_chunks[index] for index in keep]
+            new_metadata = [old_metadata[index] for index in keep]
+            if new_chunks:
+                old_embeddings = np.load(EMBEDDINGS_PATH)
+                new_embeddings = old_embeddings[keep]
+                np.save(EMBEDDINGS_PATH, new_embeddings.astype("float32"))
+            else:
+                # Corpus becomes empty: remove all three artifacts together.
+                CHUNKS_PATH.unlink(missing_ok=True)
+                METADATA_PATH.unlink(missing_ok=True)
+                EMBEDDINGS_PATH.unlink(missing_ok=True)
+                document.delete()
+                if media_file:
+                    media_file.delete(save=False)
+                return
+            CHUNKS_PATH.write_text(json.dumps(new_chunks, ensure_ascii=False), encoding="utf-8")
+            METADATA_PATH.write_text(json.dumps(new_metadata, ensure_ascii=False), encoding="utf-8")
+    document.delete()
+    if media_file:
+        media_file.delete(save=False)
+
+
+def process_documents_queued(document_ids):
+    """Process documents in-process (worker command path).
+
+    Unlike ``enqueue_documents`` (which spawns a subprocess), this runs the
+    pipeline directly — used by the runworker deployment service.
+    """
+    for document_id in document_ids:
+        process_document(document_id)

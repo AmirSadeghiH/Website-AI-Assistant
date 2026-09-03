@@ -1,0 +1,1 @@
+import os, tempfile; d = os.path.join(r'D:\ai-support-platform\.tmp-test', 'sub1'); os.makedirs(d, exist_ok=True); open(os.path.join(d,'a.txt'),'w').write('x'); print('subdir write ok'); d2 = tempfile.mkdtemp(dir=r'D:\ai-support-platform\.tmp-test'); print('mkdtemp:', d2); open(os.path.join(d2,'b.txt'),'w').write('y'); print('mkdtemp write ok')

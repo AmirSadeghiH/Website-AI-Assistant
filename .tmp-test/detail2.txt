@@ -1,0 +1,28 @@
+test_sniff_file_type_matches_content_not_extension: RAISED
+Traceback (most recent call last):
+  File "D:\ai-support-platform\.tmp-test\run_two.py", line 25, in <module>
+    getattr(instance, method)()
+  File "D:\ai-support-platform\chat\tests.py", line 579, in test_sniff_file_type_matches_content_not_extension
+    fake_pdf.write_bytes(b"#!/bin/sh\nrm -rf /\n")
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\pathlib.py", line 1036, in write_bytes
+    with self.open(mode='wb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'D:\\ai-support-platform\\.tmp-test\\tmpehnu74i7\\fake.pdf'
+
+test_retriever_raises_clear_error_on_dimension_mismatch: RAISED
+Traceback (most recent call last):
+  File "D:\ai-support-platform\.tmp-test\run_two.py", line 25, in <module>
+    getattr(instance, method)()
+  File "D:\ai-support-platform\chat\tests.py", line 607, in test_retriever_raises_clear_error_on_dimension_mismatch
+    (tmp / "chunks.json").write_text(
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\pathlib.py", line 1047, in write_text
+    with self.open(mode='w', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Program Files\WindowsApps\PythonSoftwareFoundation.Python.3.12_3.12.2800.0_x64__qbz5n2kfra8p0\Lib\pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: 'D:\\ai-support-platform\\.tmp-test\\tmpm0a8xvr7\\chunks.json'
+

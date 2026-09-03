@@ -1,0 +1,56 @@
+{% extends "panel/base.html" %}
+{% block title %}سؤالات بی‌پاسخ{% endblock %}
+{% block page_title %}سؤالات بی‌پاسخ{% endblock %}
+{% block page_sub %}هر سؤال بی‌پاسخ را به یک سند تبدیل کنید — این بخش حالا واقعا عملیاتی است{% endblock %}
+
+{% block topbar_actions %}
+  <div class="row" style="gap:6px">
+    <a class="btn btn-ghost btn-sm {% if filter != 'resolved' %}active{% endif %}" href="?filter=open">باز</a>
+    <a class="btn btn-ghost btn-sm {% if filter == 'resolved' %}active{% endif %}" href="?filter=resolved">حل‌شده</a>
+    <a class="btn btn-primary" href="{% url 'panel:knowledge' %}">افزودن به دانش</a>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="card table-wrap">
+    <table>
+      <thead><tr><th>سؤال</th><th>تکرار</th><th>دلیل</th><th>نیت</th><th>مکالمه</th><th>آخرین بروزرسانی</th><th>وضعیت</th><th>اقدام</th></tr></thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td style="max-width:300px">
+              {{ item.question }}
+              <div class="row" style="gap:4px;margin-top:6px">
+                <a class="btn btn-ghost btn-sm" href="{% url 'panel:knowledge' %}?q={{ item.question|urlencode }}">افزودن به دانش</a>
+                {% if item.conversation %}<a class="table-link small" href="{% url 'panel:conversation-detail' item.conversation.pk %}">مکالمه #{{ item.conversation.pk }}</a>{% endif %}
+              </div>
+            </td>
+            <td class="num">{% if item.count > 1 %}<span class="badge-pill info">×{{ item.count }}</span>{% else %}۱{% endif %}</td>
+            <td>
+              {% if item.reason == "no_context" %}<span class="badge-pill warn">بدون منبع</span>
+              {% elif item.reason == "low_confidence" %}<span class="badge-pill gray">اطمینان پایین</span>
+              {% else %}<span class="badge-pill danger">خطای مدل</span>{% endif %}
+            </td>
+            <td class="small muted">{{ item.get_last_intent_display|default:item.last_intent|default:"—" }}</td>
+            <td>{% if item.conversation %}<a class="table-link" href="{% url 'panel:conversation-detail' item.conversation.pk %}">#{{ item.conversation.pk }}</a>{% else %}—{% endif %}</td>
+            <td class="small muted">{{ item.updated_at|date:"Y/m/d H:i" }}</td>
+            <td>
+              {% if item.is_resolved %}<span class="badge-pill ok">حل‌شده</span>
+              {% else %}<span class="badge-pill warn">باز</span>{% endif %}
+            </td>
+            <td>
+              <form method="post" action="{% url 'panel:unanswered-toggle' item.pk %}">
+                {% csrf_token %}
+                <button class="btn btn-ghost btn-sm" type="submit">
+                  {% if item.is_resolved %}بازگشت به باز{% else %}حل‌شده کن{% endif %}
+                </button>
+              </form>
+            </td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="8"><div class="empty"><div class="empty-icon">✓</div>{% if filter == 'resolved' %}سؤال حل‌شده‌ای نیست{% else %}همه سؤالات پاسخ داده شده‌اند — وقتی دستیار کم بیاورد، همین‌جا می‌آید تا به دانش اضافه کنید.{% endif %}</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% endblock %}

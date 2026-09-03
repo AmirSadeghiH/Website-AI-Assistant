@@ -1,0 +1,262 @@
+{% extends "panel/base.html" %}
+{% block title %}پایگاه دانش{% endblock %}
+{% block page_title %}پایگاه دانش{% endblock %}
+{% block page_sub %}منبع پاسخ‌های دستیار — فایل آپلود کنید یا لینک سایت را بدهید تا خودش بخواند{% endblock %}
+
+{% block content %}
+  <style>
+    .kb-hero{display:flex;gap:14px;align-items:center;padding:14px 16px;background:#fff;border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px}
+    .kb-hero .n{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;background:var(--primary-soft);color:var(--primary);font-weight:800;flex:none}
+    .kb-hero ol{display:flex;gap:18px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
+    .kb-hero li{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+    .kb-hero li strong{color:var(--text)}
+    .kb-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-bottom:16px}
+    @media(max-width:900px){.kb-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    .kb-kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px 16px;box-shadow:var(--shadow)}
+    .kb-kpi b{font-size:22px;line-height:1}
+    .kb-kpi span{display:block;font-size:11.5px;color:var(--text-3);margin-top:4px}
+    .kb-drop{border:1.5px dashed var(--line-strong);border-radius:14px;padding:18px;background:#fafbfe;text-align:center;transition:border-color .15s,background .15s}
+    .kb-drop.drag{border-color:var(--primary);background:var(--primary-soft)}
+    .kb-drop input[type=file]{max-width:100%}
+    .kb-jobs{max-height:320px;overflow:auto}
+    .kb-job{padding:10px 0;border-bottom:1px dashed var(--line);display:flex;justify-content:space-between;gap:10px;align-items:center}
+    .kb-job:last-child{border:none}
+    .help-steps{font-size:12.5px;color:var(--text-2);line-height:1.9}
+    .help-steps code{font-size:11px;background:#eef0f6;padding:1px 6px;border-radius:6px}
+  </style>
+
+  <div class="kb-hero">
+    <div class="n">۱</div>
+    <ol>
+      <li><strong>فایل بده</strong> یا <strong>لینک بگذار</strong></li>
+      <li>→ سیستم می‌خواند و می‌فهمد</li>
+      <li>→ دستیار از همان‌ها جواب می‌دهد</li>
+    </ol>
+    <span class="right badge-pill gray">راهنما برای مدیر غیرفنی</span>
+  </div>
+
+  <div class="kb-kpis">
+    <div class="kb-kpi"><b class="text-ok">{{ documents_ready }}</b><span>سند آماده (قابل پاسخ‌دهی)</span></div>
+    <div class="kb-kpi"><b style="color:#7c3aed">{{ documents_queued }}</b><span>در صف / در حال پردازش</span></div>
+    <div class="kb-kpi"><b class="text-danger">{{ documents_failed }}</b><span>خطا — نیاز به بررسی</span></div>
+    <div class="kb-kpi"><b>{{ jobs|length }}</b><span>کار خزش اخیر</span></div>
+  </div>
+
+  <div class="grid grid-2 mb">
+    <!-- Upload -->
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">📄 افزودن فایل — همین‌جا آپلود کن</h3><span class="badge-pill info">بدون رفتن به پنل فنی</span></div>
+      <div class="card-pad">
+        <p class="small muted">PDF، Word یا TXT تا ۲۵ مگابایت. می‌توانید ۱ تا ۳ فایل را هم‌زمان بدهید — هرکدام جدا پردازش می‌شود.</p>
+        <form method="post" enctype="multipart/form-data" id="kb-upload-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="upload">
+          <div class="field">
+            <label>عنوان (اختیاری — خالی بگذارید تا از نام فایل استفاده شود)</label>
+            {{ upload_form.title }}
+          </div>
+          <div class="kb-drop mt" id="kb-drop">
+            <div style="font-weight:700">فایل‌ها را اینجا رها کنید یا انتخاب کنید</div>
+            <div class="small muted" style="margin:6px 0 10px">کشیدن و رها کردن پشتیبانی می‌شود</div>
+            <div class="form-grid" style="text-align:right">
+              <div class="field"><label>فایل اصلی *</label>{{ upload_form.file }}</div>
+              <div class="field"><label>فایل دوم</label>{{ upload_form.file2 }}</div>
+              <div class="field" style="grid-column:1/-1"><label>فایل سوم</label>{{ upload_form.file3 }}</div>
+            </div>
+            {% for field in upload_form %}{% for e in field.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}{% endfor %}
+            {% if upload_form.non_field_errors %}{% for e in upload_form.non_field_errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}{% endif %}
+          </div>
+          <button class="btn btn-primary mt" type="submit">آپلود و پردازش</button>
+          <span class="small muted" style="margin-inline-start:8px">بعد از آپلود وضعیت «آماده» را در جدول پایین ببینید.</span>
+        </form>
+        <div class="help-steps mt">
+          <strong>نکته:</strong> اگر فایل «خطا» خورد، روی ↻ بزنید یا فایل را دوباره با نام ساده آپلود کنید.
+        </div>
+      </div>
+    </div>
+
+    <!-- Crawl -->
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">🌍 خزش سایت — لینک‌ها را بده، بقیه با سیستم</h3><span class="badge-pill gray">چندلینکی</span></div>
+      <div class="card-pad">
+        <p class="small muted">
+          هر خط یک لینک. هر لینک جدا و فقط داخل همان دامنه خزیده می‌شود — مثلا می‌توانید صفحه اصلی، بلاگ و صفحه قیمت را هم‌زمان بدهید.
+        </p>
+        <form method="post" id="kb-crawl-form">
+          {% csrf_token %}
+          <input type="hidden" name="action" value="crawl">
+          <div class="field">
+            <label>لینک‌ها (هر خط یکی)</label>
+            {{ crawl_form.crawl_urls }}
+            <div class="helptext">مثال:<br><span dir="ltr" class="mono">https://example.com<br>https://example.com/blog<br>https://example.com/pricing</span></div>
+            {% for e in crawl_form.crawl_urls.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="field mt" style="max-width:220px">
+            <label>{{ crawl_form.max_pages.label }}</label>
+            {{ crawl_form.max_pages }}
+            <div class="helptext">{{ crawl_form.max_pages.help_text }}</div>
+          </div>
+          <div class="field mt" style="display:none">
+            <label>{{ crawl_form.start_url.label }}</label>
+            {{ crawl_form.start_url }}
+          </div>
+          {% for e in crawl_form.start_url.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+          <div id="kb-crawl-error" class="small text-danger mt" style="display:none"></div>
+          <button class="btn btn-primary mt" type="submit" id="kb-crawl-submit">شروع خزش</button>
+          <div class="small muted mt">خزش در پس‌زمینه اجرا می‌شود؛ لاگ و پیشرفت زیر را ببینید.</div>
+        </form>
+
+        {% if jobs %}
+          <div class="mt" style="border-top:1px solid var(--line);padding-top:12px">
+            <div class="row" style="justify-content:space-between"><strong class="small">کارهای اخیر</strong><span class="small muted">{{ jobs|length }} مورد</span></div>
+            <div class="kb-jobs mt">
+              {% for job in jobs %}
+                <div class="kb-job">
+                  <div style="min-width:0">
+                    <div class="mono small" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:320px" title="{{ job.start_url }}">{{ job.start_url|truncatechars:52 }}</div>
+                    {% if job.error_message %}<div class="small text-danger" style="max-width:360px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ job.error_message|truncatechars:100 }}</div>{% endif %}
+                    {% if job.log %}<details class="small muted"><summary>لاگ</summary><pre class="mono small" style="white-space:pre-wrap;max-height:120px;overflow:auto;background:#fafbfe;border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px">{{ job.log|truncatechars:1500 }}</pre></details>{% endif %}
+                  </div>
+                  <div class="row" style="gap:6px;flex:none">
+                    {% if job.status == "done" %}<span class="badge-pill ok">تکمیل</span>
+                    {% elif job.status == "running" %}<span class="badge-pill info">در حال اجرا…</span>
+                    {% elif job.status == "queued" %}<span class="badge-pill gray">در صف</span>
+                    {% elif job.status == "failed" %}<span class="badge-pill danger">خطا</span>{% endif %}
+                    <span class="small muted">{{ job.pages_indexed }}/{{ job.max_pages }}</span>
+                    <form method="post">
+                      {% csrf_token %}
+                      <input type="hidden" name="action" value="recrawl">
+                      <input type="hidden" name="job" value="{{ job.pk }}">
+                      <button class="btn btn-ghost btn-sm" type="submit" title="اجرای مجدد">↻</button>
+                    </form>
+                  </div>
+                </div>
+              {% endfor %}
+            </div>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <!-- Documents table -->
+  <div class="card">
+    <div class="card-head">
+      <h3 class="card-title">اسناد پایگاه دانش</h3>
+      <span class="badge-pill gray">{{ documents|length }} سند</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>عنوان</th><th>منشأ</th><th>وضعیت</th><th>قطعه</th><th>به‌روزرسانی</th><th>عملیات</th></tr></thead>
+        <tbody>
+          {% for doc in documents %}
+            <tr>
+              <td style="max-width:280px">
+                <strong>{{ doc.title|truncatechars:44 }}</strong>
+                {% if doc.source_url %}<div class="mono small muted">{{ doc.source_url|truncatechars:52 }}</div>{% endif %}
+                {% if doc.file %}<div class="mono small muted">{{ doc.file.name|truncatechars:52 }}</div>{% endif %}
+                {% if doc.error_message %}<div class="small text-danger" style="max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ doc.error_message|truncatechars:90 }}</div>{% endif %}
+              </td>
+              <td>
+                {% if doc.source_type == "crawl" %}<span class="badge-pill info">خزش</span>
+                {% else %}<span class="badge-pill gray">آپلود</span>{% endif %}
+              </td>
+              <td>
+                {% if doc.status == "ready" %}<span class="badge-pill ok"><span class="dot"></span>آماده</span>
+                {% elif doc.status == "queued" %}<span class="badge-pill gray">در صف</span>
+                {% elif doc.status == "processing" %}<span class="badge-pill info">در حال پردازش</span>
+                {% elif doc.status == "failed" %}<span class="badge-pill danger">خطا</span>
+                {% else %}<span class="badge-pill gray">{{ doc.status }}</span>{% endif %}
+              </td>
+              <td class="num">{% if doc.chunk_count %}{{ doc.chunk_count }}{% else %}—{% endif %}</td>
+              <td class="small muted">{{ doc.updated_at|date:"m/d H:i" }}</td>
+              <td>
+                <div class="row" style="gap:6px">
+                  <form method="post">
+                    {% csrf_token %}
+                    <input type="hidden" name="action" value="reprocess">
+                    <input type="hidden" name="document" value="{{ doc.pk }}">
+                    <button class="btn btn-ghost btn-sm" type="submit" title="پردازش مجدد">↻</button>
+                  </form>
+                  <form method="post" action="{% url 'panel:knowledge-delete' doc.pk %}" onsubmit="return confirm('این سند و قطعات شناختی آن حذف شود؟')">
+                    {% csrf_token %}
+                    <button class="btn btn-danger btn-sm" type="submit" title="حذف">🗑</button>
+                  </form>
+                </div>
+              </td>
+            </tr>
+          {% empty %}
+            <tr><td colspan="6"><div class="empty"><div class="empty-icon">📚</div>هنوز سندی ندارید — یک فایل آپلود کنید یا یک لینک برای خزش بدهید.</div></td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      var drop=document.getElementById('kb-drop');
+      if(drop){
+        ['dragenter','dragover'].forEach(function(ev){
+          drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('drag');});
+        });
+        ['dragleave','drop'].forEach(function(ev){
+          drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('drag');});
+        });
+        drop.addEventListener('drop',function(e){
+          var files=e.dataTransfer&&e.dataTransfer.files;
+          if(!files||!files.length) return;
+          var inputs=document.querySelectorAll('#kb-upload-form input[type=file]');
+          for(var i=0;i<Math.min(files.length, inputs.length);i++){
+            var dt=new DataTransfer();
+            dt.items.add(files[i]);
+            inputs[i].files=dt.files;
+          }
+        });
+      }
+      // Crawl UX: keep hidden start_url in sync with the visible textarea so
+      // Django never rejects the POST when only crawl_urls is filled.
+      var crawlForm=document.getElementById('kb-crawl-form');
+      if(crawlForm){
+        var ta=document.getElementById('kb-crawl-urls');
+        var startInput=document.getElementById('kb-crawl-start-url');
+        var maxInput=document.getElementById('kb-crawl-max-pages');
+        var err=document.getElementById('kb-crawl-error');
+        var btn=document.getElementById('kb-crawl-submit');
+        // If ids were not rendered (form widget override failed), fall back to name selectors
+        if(!ta) ta=crawlForm.querySelector('textarea[name="crawl_urls"]');
+        if(!startInput) startInput=crawlForm.querySelector('input[name="start_url"]');
+        if(!maxInput) maxInput=crawlForm.querySelector('input[name="max_pages"]');
+        function firstUrl(){
+          if(!ta) return "";
+          var lines=ta.value.split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+          return lines[0]||"";
+        }
+        function sync(){
+          if(startInput) startInput.value=firstUrl();
+        }
+        if(ta) ta.addEventListener('input',sync);
+        if(ta) ta.addEventListener('change',sync);
+        sync();
+        crawlForm.addEventListener('submit',function(e){
+          sync();
+          var urls=(ta?ta.value:"").split(/\r?\n/).map(function(s){return s.trim();}).filter(Boolean);
+          var maxVal=maxInput?parseInt(maxInput.value||"0",10):0;
+          var msgs=[];
+          if(!urls.length) msgs.push("حداقل یک لینک وارد کنید.");
+          var bad=urls.filter(function(u){return !(u.indexOf("http://")===0 || u.indexOf("https://")===0);});
+          if(bad.length) msgs.push("هر لینک باید با http(s):// شروع شود: "+bad.slice(0,3).join("، "));
+          if(maxInput && (isNaN(maxVal) || maxVal<1 || maxVal>200)) msgs.push("حداکثر صفحات باید بین ۱ تا ۲۰۰ باشد.");
+          if(msgs.length){
+            e.preventDefault();
+            if(err){err.textContent=msgs.join(" — ");err.style.display="block";}
+            if(ta) ta.focus();
+            return false;
+          }
+          if(err) err.style.display="none";
+          if(btn){btn.disabled=true;btn.textContent="در حال ثبت…";}
+        });
+      }
+    })();
+  </script>
+{% endblock %}

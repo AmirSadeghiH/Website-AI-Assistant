@@ -1,0 +1,288 @@
+{% extends "panel/base.html" %}
+{% load static %}
+{% block title %}طراحی ویجت{% endblock %}
+{% block page_title %}طراحی ویجت{% endblock %}
+{% block page_sub %}شخصی‌سازی ظاهر و رفتار ویجت با پیش‌نمایش زنده{% endblock %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary" type="submit" form="customizer-form">ذخیره تغییرات</button>
+{% endblock %}
+
+{% block content %}
+  <form method="post" enctype="multipart/form-data" id="customizer-form">
+    {% csrf_token %}
+    <div class="customizer-grid">
+
+      <!-- Forms column -->
+      <div class="card">
+        <div class="tabs" role="tablist">
+          <button class="tab-btn active" type="button" data-tab="identity">هویت برند</button>
+          <button class="tab-btn" type="button" data-tab="appearance">ظاهر</button>
+          <button class="tab-btn" type="button" data-tab="position">موقعیت</button>
+          <button class="tab-btn" type="button" data-tab="behavior">رفتار</button>
+          <button class="tab-btn" type="button" data-tab="lead">سرنخ و پشتیبانی</button>
+        </div>
+
+        <!-- Identity -->
+        <div class="tab-pane active" data-pane="identity">
+          <!-- UI variant picker: which widget bundle serves the site -->
+          <div class="callout" style="background:#f0f0ff;border:1px solid #dfe3fd;border-radius:10px;padding:12px 14px;margin-bottom:14px">
+            <strong style="color:#6366f1">نسخه رابط کاربری</strong>
+            <span class="small muted">— یکی از سه نسخه را انتخاب کن؛ کد نصب و پیش‌نمایش همان را سرو می‌کنند. شخصی‌سازی روی هر سه اعمال می‌شود.</span>
+            <div class="form-grid" style="margin-top:10px">
+              {% for field in appearance %}
+                {% if field.name == "widget_theme" %}
+                  <div class="field full">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {{ field }}
+                    {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </div>
+          <div class="form-grid">
+            {% for field in appearance %}
+              {% if field.name == "business_name" or field.name == "website_url" or field.name == "title" or field.name == "subtitle" or field.name == "greeting" or field.name == "header_badge" or field.name == "bot_avatar_text" or field.name == "logo_url" or field.name == "font_family" %}
+                <div class="field {% if field.name == 'greeting' %}full{% endif %}">
+                  <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                  {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Appearance -->
+        <div class="tab-pane" data-pane="appearance">
+          <div class="form-grid">
+            {% for field in appearance %}
+              {% if field.name == "primary_color" or field.name == "secondary_color" or field.name == "accent_color" or field.name == "font_size" or field.name == "theme_mode" or field.name == "dark_mode" or field.name == "bubble_style" or field.name == "border_radius" or field.name == "panel_width" or field.name == "panel_height" or field.name == "icon_type" or field.name == "default_icon_choice" or field.name == "custom_icon_file" or field.name == "mobile_fullscreen" %}
+                <div class="field">
+                  <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                  {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Position -->
+        <div class="tab-pane" data-pane="position">
+          <div class="form-grid">
+            {% for field in appearance %}
+              {% if field.name == "position" or field.name == "position_vertical_offset" or field.name == "position_horizontal_offset" %}
+                <div class="field">
+                  <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Behavior -->
+        <div class="tab-pane" data-pane="behavior">
+          <div class="callout" style="background:#f0f0ff;border:1px solid #dfe3fd;border-radius:10px;padding:10px 12px;font-size:12.5px;color:#4b5563;margin-bottom:12px">
+            <strong style="color:#6366f1">حافظه مکالمه:</strong> وقتی تیک زیر روشن باشد، دستیار ضمیرها (این، آن، مشخصاتش…) را از پیام‌های قبلی می‌فهمد — برای «لپ‌تاپ لمسی → مشخصاتش؟» ضروری است. اگر خاموش کنید هر سؤال جدا پاسخ داده می‌شود (سریع‌تر ولی بدون زمینه).
+          </div>
+          <div class="form-grid">
+            {% for field in behavior %}
+              {% if field.name == "input_placeholder" or field.name == "suggestions_text" or field.name == "context_window" or field.name == "faq_url" or field.name == "privacy_url" or field.name == "support_email" %}
+                <div class="field {% if field.name == 'suggestions_text' %}full{% endif %}">
+                  <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                </div>
+              {% elif field.is_checkbox %}
+                <div class="check-row">{{ field }}<label for="{{ field.id_for_label }}">{{ field.label }}</label></div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+
+        <!-- Lead & handoff -->
+        <div class="tab-pane" data-pane="lead">
+          <div class="form-grid">
+            {% for field in behavior %}
+              {% if field.name == "lead_form_title" or field.name == "lead_form_description" or field.name == "handoff_message" or field.name == "handoff_trigger" or field.name == "handoff_email" or field.name == "handoff_telegram_url" or field.name == "handoff_whatsapp_url" or field.name == "handoff_contact_url" %}
+                <div class="field {% if field.name == 'lead_form_description' or field.name == 'handoff_message' %}full{% endif %}">
+                  <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                  {{ field }}
+                  {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+                </div>
+              {% elif field.name == "enable_lead_capture" or field.name == "enable_handoff" or field.name == "enable_streaming" or field.name == "show_citations" %}
+                <div class="check-row">{{ field }}<label for="{{ field.id_for_label }}">{{ field.label }}</label></div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+
+      <!-- Live preview column -->
+      <div class="preview-frame-wrap">
+        <span class="preview-label">پیش‌نمایش زنده</span>
+        <iframe id="preview-frame" src="{% url 'panel:preview' %}" title="پیش‌نمایش ویجت" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+      </div>
+    </div>
+  </form>
+{% endblock %}
+
+{% block scripts %}
+  <script>
+    (function () {
+      // ── Tab switching (scoped to the customizer card; no global .tab-* bleed) ──
+      (function initTabs() {
+        var scope = document.querySelector(".customizer-grid .card");
+        if (!scope) scope = document;
+        var btns = scope.querySelectorAll(".tab-btn");
+        var panes = scope.querySelectorAll(".tab-pane");
+        if (!btns.length || !panes.length) return;
+
+        function activateTab(name) {
+          btns.forEach(function (b) { b.classList.toggle("active", b.getAttribute("data-tab") === name); });
+          panes.forEach(function (p) { p.classList.toggle("active", p.getAttribute("data-pane") === name); });
+          // also toggle aria for a11y
+          btns.forEach(function (b) { b.setAttribute("aria-selected", String(b.getAttribute("data-tab") === name)); });
+          try { localStorage.setItem("customizer:tab", name); } catch (_) {}
+          var url = new URL(window.location.href);
+          url.searchParams.set("tab", name);
+          try { history.replaceState(null, "", url); } catch (_) {}
+        }
+
+        // Restore last active tab (deep-link via ?tab= or localStorage)
+        (function () {
+          var initial = null;
+          try { initial = new URL(window.location.href).searchParams.get("tab"); } catch (_) {}
+          if (!initial) { try { initial = localStorage.getItem("customizer:tab"); } catch (_) {} }
+          if (initial && scope.querySelector('.tab-btn[data-tab="' + CSS.escape(initial) + '"]')) {
+            activateTab(initial);
+          }
+        })();
+
+        btns.forEach(function (btn) {
+          btn.setAttribute("role", "tab");
+          btn.addEventListener("click", function (e) {
+            e.preventDefault();
+            activateTab(btn.getAttribute("data-tab"));
+          });
+        });
+        // keyboard: arrow navigation across tabs
+        scope.querySelector(".tabs").addEventListener("keydown", function (e) {
+          if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+          var cur = scope.querySelector(".tab-btn.active");
+          var list = Array.prototype.slice.call(btns);
+          var idx = list.indexOf(cur);
+          if (idx === -1) return;
+          e.preventDefault();
+          var next = e.key === "ArrowRight" ? (idx + 1) % list.length : (idx - 1 + list.length) % list.length;
+          list[next].focus();
+          activateTab(list[next].getAttribute("data-tab"));
+        });
+        panes.forEach(function (p, i) { p.setAttribute("role", "tabpanel"); p.id = p.id || ("pane-" + p.getAttribute("data-pane")); });
+        btns.forEach(function (b) {
+          var pane = scope.querySelector('[data-pane="' + b.getAttribute("data-tab") + '"]');
+          if (pane) b.setAttribute("aria-controls", pane.id);
+        });
+      })();
+
+      // ── Live preview plumbing ────────────────────────────────────────
+      var frame = document.getElementById("preview-frame");
+      var form = document.getElementById("customizer-form");
+      if (!form || !frame) return;
+
+      // Live preview: push form changes into the widget iframe as JSON
+      var baseCfg;
+      try { baseCfg = {{ preview_payload|safe }}; } catch (e) { baseCfg = {}; }
+
+      function toCamel(s) { return s.replace(/_([a-z])/g, function (m, c) { return c.toUpperCase(); }); }
+
+      function currentConfig() {
+        var cfg = Object.assign({}, baseCfg);
+        var map = {};
+        form.querySelectorAll("input, select, textarea").forEach(function (el) {
+          if (!el.name) return;
+          map[el.name] = el;
+        });
+        var pairs = {
+          "title": "title", "subtitle": "subtitle", "greeting": "greeting",
+          "header_badge": "headerBadge", "bot_avatar_text": "botAvatarText",
+          "primary_color": "primaryColor", "secondary_color": "secondaryColor", "accent_color": "accentColor",
+          "logo_url": "logoUrl", "font_family": "fontFamily", "font_size": "fontSize",
+          "theme_mode": "themeMode", "dark_mode": "darkMode", "bubble_style": "bubbleStyle",
+          "panel_width": "panelWidth", "panel_height": "panelHeight", "border_radius": "borderRadius",
+          "position": "position", "position_vertical_offset": "positionVerticalOffset",
+          "position_horizontal_offset": "positionHorizontalOffset",
+          "input_placeholder": "inputPlaceholder",
+          "lead_form_title": "leadFormTitle", "lead_form_description": "leadFormDescription",
+          "handoff_message": "handoffMessage",
+          "suggestions_text": "suggestions"
+        };
+        Object.keys(pairs).forEach(function (name) {
+          var el = map[name];
+          if (!el || el.type === "file") return;
+          var key = pairs[name];
+          var v = el.value;
+          if (key === "panelWidth" || key === "panelHeight" || key === "borderRadius" ||
+              key === "positionVerticalOffset" || key === "positionHorizontalOffset") {
+            var n = Number(v);
+            v = isNaN(n) ? baseCfg[key] : n;
+          } else if (key === "suggestions") {
+            v = v.split("\n").map(function (l) { return l.trim(); }).filter(Boolean).slice(0, 8);
+          }
+          cfg[key] = v;
+        });
+        ["mobile_fullscreen", "show_powered_by", "show_timestamp", "show_avatar", "show_feedback",
+         "enable_sounds", "enable_animations", "show_citations", "enable_lead_capture", "enable_handoff",
+         "enable_conversation_memory"].forEach(function (name) {
+          var el = map[name];
+          if (el) cfg[toCamel(name)] = el.checked;
+        });
+        // Select fields that also map to preview keys
+        ["handoff_trigger", "context_window", "widget_theme"].forEach(function (name) {
+          var el = map[name];
+          if (el) cfg[toCamel(name)] = el.value;
+        });
+        return cfg;
+      }
+
+      function pushPreview() {
+        if (!frame || !frame.contentWindow) return;
+        // Switching the UI variant reloads the preview with the chosen bundle.
+        var theme = null;
+        var themeSel = form.querySelector('select[name="widget_theme"]');
+        if (themeSel) theme = themeSel.value;
+        if (theme && frame.dataset.theme !== theme) {
+          frame.dataset.theme = theme;
+          frame.src = "{% url 'panel:preview' %}?theme=" + encodeURIComponent(theme);
+          return;
+        }
+        try {
+          frame.contentWindow.postMessage({ type: "aiss:config", config: currentConfig() }, "*");
+        } catch (_) {}
+      }
+
+      var timer = null;
+      function schedulePush() {
+        clearTimeout(timer);
+        timer = setTimeout(pushPreview, 220);
+      }
+      form.addEventListener("input", schedulePush);
+      form.addEventListener("change", schedulePush);
+
+      window.addEventListener("message", function (e) {
+        if (e.data && e.data.type === "aiss:preview-ready") pushPreview();
+      });
+      frame.addEventListener("load", function () {
+        setTimeout(pushPreview, 500);
+      });
+      // Fallback push in case the iframe never fires ready
+      setTimeout(pushPreview, 1200);
+    })();
+  </script>
+{% endblock %}

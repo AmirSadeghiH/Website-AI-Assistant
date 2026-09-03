@@ -65,3 +65,21 @@ class WidgetFeedbackThrottle(WidgetRateThrottle):
 
     def get_rate(self):
         return getattr(settings, "WIDGET_FEEDBACK_RATE", "60/minute")
+
+
+class WidgetLeadsThrottle(WidgetRateThrottle):
+    """Strict throttle for lead submissions (anti-spam)."""
+
+    scope = "widget_leads"
+
+    def get_rate(self):
+        return getattr(settings, "WIDGET_LEADS_RATE", "10/minute")
+
+
+class WidgetHandoffThrottle(WidgetRateThrottle):
+    """Strict throttle for human-handoff requests (anti-spam)."""
+
+    scope = "widget_handoff"
+
+    def get_rate(self):
+        return getattr(settings, "WIDGET_HANDOFF_RATE", "10/minute")

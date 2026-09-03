@@ -1,0 +1,174 @@
+{% extends "panel/base.html" %}
+{% block title %}قوانین کسب‌وکار{% endblock %}
+{% block page_title %}قوانین کسب‌وکار{% endblock %}
+{% block page_sub %}اگر این شد، آن را پیشنهاد بده — بدون کدنویسی، فقط با قانون{% endblock %}
+
+{% block content %}
+  <style>
+    .br-hero{display:flex;gap:12px;align-items:center;padding:14px 16px;background:linear-gradient(135deg,#4f46e5,#7c3aed);color:#fff;border-radius:var(--radius);box-shadow:var(--shadow);margin-bottom:16px}
+    .br-hero b{font-size:15px}
+    .br-hero p{margin:4px 0 0;opacity:.9;font-size:12.5px}
+    .br-grid{display:grid;grid-template-columns:1.2fr .9fr;gap:16px;align-items:start}
+    @media(max-width:1000px){.br-grid{grid-template-columns:minmax(0,1fr)}}
+    .br-rule{border:1px solid var(--line);border-radius:14px;background:#fff;padding:14px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px}
+    .br-rule-head{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+    .br-rule-head b{font-size:13.5px}
+    .br-when{font-size:12px;background:#fafbfe;border:1px solid var(--line);border-radius:9px;padding:6px 10px}
+    .br-then{font-size:12px;background:var(--primary-soft);border:1px solid #dfe3fd;border-radius:9px;padding:6px 10px}
+    .br-actions{display:flex;gap:6px;flex-wrap:wrap}
+    .br-empty{text-align:center;padding:32px 16px;color:var(--text-2)}
+    .mono{font-family:ui-monospace,Consolas,monospace}
+    .field select,.field input{width:100%}
+  </style>
+
+  <div class="br-hero">
+    <div style="font-size:24px">⚙️</div>
+    <div>
+      <b>قانون = اگر کاربر این را گفت، این کار را بکن</b>
+      <p>مثلا «اگر درباره قیمت پرسید → لینک /pricing را نشان بده» یا «اگر عصبانی بود → دکمه اتصال به کارشناس». قانون‌ها قبل از پاسخ هوش مصنوعی بررسی می‌شوند و مثل یک پیشنهاد هوشمند کنار جواب ظاهر می‌شوند.</p>
+    </div>
+    <span class="badge-pill" style="background:rgba(255,255,255,.2);color:#fff;margin-inline-start:auto">حرفه‌ای‌ها می‌توانند ده‌ها قانون بسازند — یا از شما بخواهند برایشان بسازید</span>
+  </div>
+
+  <div class="br-grid">
+    <!-- Form -->
+    <div class="card">
+      <div class="card-head"><h3 class="card-title">قانون جدید</h3></div>
+      <div class="card-pad">
+        <form method="post">
+          {% csrf_token %}
+          <div class="field">
+            <label>نام قانون (داخلی)</label>
+            {{ form.name }}
+            {% for e in form.name.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+          </div>
+          <div class="form-grid mt">
+            <div class="field">
+              <label>فعال؟</label>
+              <div class="check-row">{{ form.enabled }}<label for="{{ form.enabled.id_for_label }}">فعال</label></div>
+            </div>
+            <div class="field">
+              <label>اولویت (عدد کمتر = زودتر اجرا)</label>
+              {{ form.priority }}
+            </div>
+          </div>
+
+          <div class="form-grid mt">
+            <div class="field">
+              <label>شرط (کی فعال شود؟)</label>
+              {{ form.trigger_type }}
+              {% for e in form.trigger_type.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+              <div class="helptext" id="trigger-help"></div>
+            </div>
+            <div class="field">
+              <label>مقدار شرط</label>
+              {{ form.trigger_value }}
+              <div class="helptext" id="trigger-value-help">برای intent: مثلا pricing / complaint؛ برای کلیدواژه: مثلا قیمت؛ برای حالت عصبانیت/بی‌پاسخی خالی بگذارید.</div>
+              {% for e in form.trigger_value.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+              <details class="small muted" style="margin-top:6px"><summary>کدهای intent</summary>
+                <div class="mono small" style="margin-top:6px">
+                  {% for code,label in intent_choices %}<code>{{ code }}</code> — {{ label }} &nbsp;{% endfor %}
+                </div>
+              </details>
+            </div>
+          </div>
+
+          <div class="form-grid mt">
+            <div class="field">
+              <label>اقدام</label>
+              {{ form.action_type }}
+            </div>
+            <div class="field">
+              <label>متن دکمه/چیپ</label>
+              {{ form.action_label }}
+              <div class="helptext">مثلا «دیدن قیمت‌ها» یا «گفتگو با کارشناس»</div>
+            </div>
+          </div>
+
+          <div class="field mt">
+            <label>محتوا / لینک</label>
+            {{ form.action_payload }}
+            <div class="helptext" id="payload-help">برای لینک: /pricing یا https://… ؛ برای متن: جمله پیشنهادی؛ برای handoff: توضیح کوتاه.</div>
+            {% for e in form.action_payload.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+            {% if form.non_field_errors %}{% for e in form.non_field_errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}{% endif %}
+          </div>
+
+          <button class="btn btn-primary mt" type="submit">ذخیره قانون</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- Rules list -->
+    <div>
+      {% if rules %}
+        <div style="display:flex;flex-direction:column;gap:10px">
+          {% for r in rules %}
+            <div class="br-rule" style="opacity:{% if not r.enabled %}0.6{% endif %}">
+              <div class="br-rule-head">
+                <span class="badge-pill {% if r.enabled %}ok{% else %}gray{% endif %}">{% if r.enabled %}فعال{% else %}غیرفعال{% endif %}</span>
+                <b>{{ r.name }}</b>
+                <span class="small muted">اولویت {{ r.priority }}</span>
+                <span class="right small muted">{{ r.updated_at|date:"m/d H:i" }}</span>
+              </div>
+              <div class="br-when">اگر <strong>{{ r.get_trigger_type_display }}</strong>{% if r.trigger_value %} = <code class="mono">{{ r.trigger_value }}</code>{% endif %}</div>
+              <div class="br-then">→ <strong>{{ r.get_action_type_display }}</strong>: {% if r.action_label %}<em>{{ r.action_label }}</em> — {% endif %}<span class="mono" dir="ltr">{{ r.action_payload|truncatechars:80 }}</span></div>
+              <div class="br-actions">
+                <form method="post">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="toggle">
+                  <input type="hidden" name="rule_id" value="{{ r.pk }}">
+                  <button class="btn btn-ghost btn-sm" type="submit">{% if r.enabled %}غیرفعال کن{% else %}فعال کن{% endif %}</button>
+                </form>
+                <form method="post" onsubmit="return confirm('حذف شود؟')">
+                  {% csrf_token %}
+                  <input type="hidden" name="action" value="delete">
+                  <input type="hidden" name="rule_id" value="{{ r.pk }}">
+                  <button class="btn btn-danger btn-sm" type="submit">حذف</button>
+                </form>
+              </div>
+            </div>
+          {% endfor %}
+        </div>
+      {% else %}
+        <div class="card card-pad br-empty">
+          <div style="font-size:32px">📋</div>
+          <p>هنوز قانونی ندارید.</p>
+          <p class="small muted">سه نمونه سریع: ۱) قیمت → /pricing ۲) نارضایتی → handoff ۳) «تماس» → لینک تماس</p>
+        </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="card card-pad mt">
+    <h3 class="card-title">چطور حرفه‌ای استفاده کنم؟</h3>
+    <p class="small muted">قانون‌ها به ترتیب اولویت (عدد کمتر اول) بررسی می‌شوند و حداکثر ۲ پیشنهاد هم‌زمان کنار پاسخ نشان داده می‌شود. برای پیشنهاد لینک از <code class="mono">/path</code> یا <code class="mono">https://…</code> استفاده کنید — ویجت آن را به چیپ قابل کلیک تبدیل می‌کند. برای handoff، ویجت نوار اتصال به کارشناس را پررنگ‌تر نشان می‌دهد. این بخش را می‌توانید به‌عنوان سرویس پولی برای مشتری تنظیم کنید.</p>
+  </div>
+
+  <script>
+    (function(){
+      var t=document.getElementById('id_trigger_type');
+      var help=document.getElementById('trigger-help');
+      var vhelp=document.getElementById('trigger-value-help');
+      var payload=document.getElementById('payload-help');
+      var at=document.getElementById('id_action_type');
+      function render(){
+        var tv=t&&t.value;
+        var av=at&&at.value;
+        if(help){
+          var m={intent:'وقتی نیت کاربر با این intent یکی بود.',keyword:'وقتی این عبارت در پیام بود (فارسی/انگلیسی).',sentiment_negative:'وقتی لحن منفی/عصبانیت تشخیص داده شد.',fallback:'فقط وقتی پاسخ بی‌پاسخ/کم‌اطمینان بود.'};
+          help.textContent=m[tv]||'';
+        }
+        if(vhelp){
+          vhelp.style.display = (tv==='sentiment_negative' || tv==='fallback') ? 'none' : 'block';
+        }
+        if(payload){
+          var pm={suggest_link:'یک URL (داخلی /… یا کامل https://…)',suggest_text:'یک جمله پیشنهادی کوتاه',handoff:'توضیح کوتاه برای اتصال انسانی'};
+          payload.textContent=pm[av]||payload.textContent;
+        }
+      }
+      if(t) t.addEventListener('change',render);
+      if(at) at.addEventListener('change',render);
+      render();
+    })();
+  </script>
+{% endblock %}

@@ -1,0 +1,81 @@
+{% extends "panel/base.html" %}
+{% block title %}مکالمه #{{ conversation.pk }}{% endblock %}
+{% block page_title %}مکالمه #{{ conversation.pk }}{% endblock %}
+{% block page_sub %}{{ conversation.message_count }} پیام · شروع {{ conversation.created_at|date:"Y/m/d H:i" }} · {{ conversation.get_origin_display|default:conversation.origin }}{% if conversation.path %} · {{ conversation.path }}{% endif %}{% endblock %}
+
+{% block topbar_actions %}
+  <form method="post" class="row" style="gap:6px">
+    {% csrf_token %}
+    <select name="status" onchange="this.form.submit()" style="width:auto">
+      <option value="open" {% if conversation.status == 'open' %}selected{% endif %}>باز</option>
+      <option value="resolved" {% if conversation.status == 'resolved' %}selected{% endif %}>حل‌شده</option>
+      <option value="handed_off" {% if conversation.status == 'handed_off' %}selected{% endif %}>ارجاع‌شده</option>
+    </select>
+  </form>
+  <a class="btn btn-ghost" href="{% url 'panel:conversations' %}">← بازگشت به فهرست</a>
+{% endblock %}
+
+{% block content %}
+  <div class="grid grid-3 mb">
+    <div class="card kpi">
+      <div class="kpi-label">شناسه مکالمه</div>
+      <div class="mono" style="font-size:12px;margin-top:6px;word-break:break-all">{{ conversation.conversation_id }}</div>
+    </div>
+    <div class="card kpi ok">
+      <div class="kpi-label">وضعیت</div>
+      <div style="margin-top:8px">
+        {% if conversation.status == "resolved" %}<span class="badge-pill ok">حل‌شده</span>
+        {% elif conversation.status == "handed_off" %}<span class="badge-pill warn">ارجاع‌شده به کارشناس</span>
+        {% else %}<span class="badge-pill info">باز</span>{% endif %}
+      </div>
+    </div>
+    <div class="card kpi accent">
+      <div class="kpi-label">سرنخ متصل</div>
+      <div style="margin-top:6px" class="small">
+        {% if conversation.lead %}
+          {{ conversation.lead.name }} — <span class="mono">{{ conversation.lead.email|default:conversation.lead.phone }}</span>
+        {% else %}—{% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-head">
+      <h3 class="card-title">گفتگو</h3>
+      <span class="badge-pill gray">{{ conversation.messages.count }} پیام</span>
+    </div>
+    <div class="transcript">
+      {% for msg in conversation.messages.all %}
+        <div class="msg {{ msg.role }}">
+          {{ msg.content }}
+          <div class="msg-meta">
+            <span>{{ msg.created_at|date:"H:i:s" }}</span>
+            {% if msg.role == "assistant" %}
+              {% if msg.used_fallback %}<span class="badge-pill warn">پاسخ جایگزین</span>{% endif %}
+              {% if msg.is_streamed %}<span class="badge-pill info">stream</span>{% endif %}
+              {% if msg.latency_ms %}<span>{{ msg.latency_ms }}ms</span>{% endif %}
+              {% if msg.confidence is not None %}<span>اطمینان: {{ msg.confidence|floatformat:2 }}</span>{% endif %}
+            {% endif %}
+            {% if msg.intent %}<span class="badge-pill gray">{{ msg.get_intent_display|default:msg.intent }}</span>{% endif %}
+          </div>
+          {% if msg.sources %}
+            <div class="cite-row">
+              {% for src in msg.sources %}
+                {% if src.url %}<a class="cite" href="{{ src.url }}" target="_blank" rel="noopener">{{ src.title|truncatechars:34 }}</a>
+                {% else %}<span class="cite">{{ src.title|truncatechars:34 }}</span>{% endif %}
+              {% endfor %}
+            </div>
+          {% endif %}
+          {% if msg.feedback %}
+            <div class="msg-meta">
+              {% if msg.feedback.helpful %}<span class="badge-pill ok">👍 مفید</span>{% else %}<span class="badge-pill danger">👎 نامفید</span>{% endif %}
+              {% if msg.feedback.comment %}<span class="muted">«{{ msg.feedback.comment }}»</span>{% endif %}
+            </div>
+          {% endif %}
+        </div>
+      {% empty %}
+        <div class="empty"><div class="empty-icon">💬</div>پیامی ثبت نشده</div>
+      {% endfor %}
+    </div>
+  </div>
+{% endblock %}

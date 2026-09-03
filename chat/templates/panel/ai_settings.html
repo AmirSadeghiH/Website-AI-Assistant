@@ -1,0 +1,225 @@
+{% extends "panel/base.html" %}
+{% block title %}تنظیمات هوش مصنوعی{% endblock %}
+{% block page_title %}تنظیمات هوش مصنوعی{% endblock %}
+{% block page_sub %}کلیدها رمزنگاری می‌شوند · پرامپت را می‌توانید دستی بنویسید یا بگذارید سازنده هوشمند از معرفی کسب‌وکارتان بسازد — هر دو ممکن است{% endblock %}
+
+{% block content %}
+  <style>
+    .ai-tabs{display:flex;gap:6px;margin-bottom:16px;flex-wrap:wrap}
+    .ai-tab{padding:8px 14px;border-radius:10px;border:1px solid var(--line);background:#fff;font-weight:700;font-size:13px;cursor:pointer}
+    .ai-tab.active{background:var(--ink);color:#fff;border-color:var(--ink)}
+    .prompt-preview{background:var(--ink);color:#d9dcf3;border-radius:14px;padding:16px 18px;font-size:12.5px;line-height:1.9;white-space:pre-wrap;max-height:320px;overflow:auto;border:1px solid #2c3052;direction:rtl}
+    .prompt-preview:empty::before{content:"پیش‌نمایش اینجا ظاهر می‌شود…";color:#6f75a0}
+    .mode-hint{font-size:12px;color:var(--text-2);background:#fafbfe;border:1px dashed var(--line);border-radius:10px;padding:10px 12px}
+    .field textarea[dir=ltr]{direction:ltr}
+  </style>
+
+  <div class="ai-tabs" role="tablist">
+    <button type="button" class="ai-tab {% if request.GET.tab != 'prompt' %}active{% endif %}" data-tab="provider">ارائه‌دهنده و ظرفیت</button>
+    <button type="button" class="ai-tab {% if request.GET.tab == 'prompt' %}active{% endif %}" data-tab="prompt">پرامپت و لحن</button>
+  </div>
+
+  <!-- Provider & capacity -->
+  <form method="post" id="ai-provider-form" {% if request.GET.tab == 'prompt' %}hidden{% endif %}>
+    {% csrf_token %}
+    <input type="hidden" name="section" value="provider">
+    <div class="card card-pad">
+      <div class="card-head" style="padding:0 0 0"><h3 class="card-title">مدل پاسخ‌دهی (LLM)</h3><span class="badge-pill info">پاسخ از همین مدل می‌آید</span></div>
+      <div class="form-grid mt">
+        {% for field in form %}
+          {% if field.name == "llm_api_key" or field.name == "llm_base_url" or field.name == "llm_model" or field.name == "llm_max_tokens" or field.name == "llm_timeout_seconds" or field.name == "llm_max_retries" %}
+            <div class="field">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+              {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card card-pad mt">
+      <div class="card-head" style="padding:0 0 0"><h3 class="card-title">مدل Embedding</h3></div>
+      <div class="form-grid mt">
+        {% for field in form %}
+          {% if field.name == "embedding_api_key" or field.name == "embedding_base_url" or field.name == "embedding_model" or field.name == "embedding_timeout_seconds" or field.name == "embedding_max_retries" %}
+            <div class="field">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+              {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+    <div class="card card-pad mt">
+      <div class="card-head" style="padding:0 0 0"><h3 class="card-title">ظرفیت و اعلان</h3></div>
+      <div class="form-grid mt">
+        {% for field in form %}
+          {% if field.name == "rag_max_concurrent" or field.name == "response_cache_seconds" or field.name == "telegram_bot_token" or field.name == "telegram_chat_id" %}
+            <div class="field">
+              <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+              {{ field }}
+              {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
+              {% for error in field.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+      <p class="small muted mt">توکن تلگرام فقط برای اعلان سرنخ/Handoff است؛ خالی بماند اعلان به ایمیل مدیر می‌رود.</p>
+    </div>
+    <button class="btn btn-primary mt" type="submit">ذخیره ارائه‌دهنده</button>
+  </form>
+
+  <!-- Prompt builder -->
+  <form method="post" id="ai-prompt-form" {% if request.GET.tab != 'prompt' %}hidden{% endif %}>
+    {% csrf_token %}
+    <input type="hidden" name="section" value="prompt">
+
+    <div class="card card-pad">
+      <h3 class="card-title">سازنده هوشمند پرامپت</h3>
+      <p class="small muted">نام دستیار، لحن، زبان و معرفی کسب‌وکار را بدهید — سیستم یک پرامپت حرفه‌ای می‌سازد. اگر بخواهید می‌توانید همان را دستی ویرایش کنید.</p>
+
+      <div class="form-grid mt">
+        <div class="field">
+          <label for="{{ prompt_form.prompt_mode.id_for_label }}">{{ prompt_form.prompt_mode.label }}</label>
+          {{ prompt_form.prompt_mode }}
+          <div class="helptext">«سازنده هوشمند» پرامپت را از فیلدهای زیر می‌سازد؛ «ویرایش دستی» متن System Prompt را عینا استفاده می‌کند.</div>
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.prompt_assistant_name.id_for_label }}">{{ prompt_form.prompt_assistant_name.label }}</label>
+          {{ prompt_form.prompt_assistant_name }}
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.prompt_tone.id_for_label }}">{{ prompt_form.prompt_tone.label }}</label>
+          {{ prompt_form.prompt_tone }}
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.prompt_language.id_for_label }}">{{ prompt_form.prompt_language.label }}</label>
+          {{ prompt_form.prompt_language }}
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.prompt_answer_length.id_for_label }}">{{ prompt_form.prompt_answer_length.label }}</label>
+          {{ prompt_form.prompt_answer_length }}
+        </div>
+        <div class="check-row">
+          {{ prompt_form.prompt_use_emoji }}
+          <label for="{{ prompt_form.prompt_use_emoji.id_for_label }}">{{ prompt_form.prompt_use_emoji.label }}</label>
+        </div>
+        <div class="field full">
+          <label for="{{ prompt_form.prompt_business_context.id_for_label }}">{{ prompt_form.prompt_business_context.label }}</label>
+          {{ prompt_form.prompt_business_context }}
+          {% if prompt_form.prompt_business_context.help_text %}<div class="helptext">{{ prompt_form.prompt_business_context.help_text }}</div>{% endif %}
+        </div>
+      </div>
+
+      <div class="mt">
+        <div class="row" style="justify-content:space-between"><strong class="small">پیش‌نمایش زنده پرامپت (سازنده)</strong><span class="small muted">از فیلدهای بالا ساخته می‌شود</span></div>
+        <pre class="prompt-preview mt" id="prompt-preview">{{ auto_preview }}</pre>
+        <div class="mode-hint mt" id="mode-hint"></div>
+      </div>
+    </div>
+
+    <div class="card card-pad mt">
+      <h3 class="card-title">ویرایش دستی (پیشرفته)</h3>
+      <p class="small muted">اگر «ویرایش دستی» را انتخاب کنید، همین دو متن استفاده می‌شود. در حالت «سازنده هوشمند»، این فیلدها فقط زمانی استفاده می‌شوند که سازنده خالی باشد.</p>
+      <div class="form-grid mt">
+        <div class="field full">
+          <label for="{{ prompt_form.system_prompt.id_for_label }}">{{ prompt_form.system_prompt.label }}</label>
+          {{ prompt_form.system_prompt }}
+          <div class="helptext">System prompt — هویت و قوانین کلی دستیار</div>
+          {% for error in prompt_form.system_prompt.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="field full">
+          <label for="{{ prompt_form.user_prompt.id_for_label }}">{{ prompt_form.user_prompt.label }}</label>
+          {{ prompt_form.user_prompt }}
+          <div class="helptext">User prompt — دستور تزریق منابع بازیابی‌شده قبل از هر سؤال</div>
+          {% for error in prompt_form.user_prompt.errors %}<div class="small text-danger">{{ error }}</div>{% endfor %}
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.temperature.id_for_label }}">{{ prompt_form.temperature.label }}</label>
+          {{ prompt_form.temperature }}
+        </div>
+        <div class="field">
+          <label for="{{ prompt_form.model_name.id_for_label }}">{{ prompt_form.model_name.label }}</label>
+          {{ prompt_form.model_name }}
+        </div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary mt" type="submit">ذخیره پرامپت</button>
+  </form>
+
+  <script>
+  (function(){
+    var tabs=document.querySelectorAll('.ai-tab');
+    var providerForm=document.getElementById('ai-provider-form');
+    var promptForm=document.getElementById('ai-prompt-form');
+    tabs.forEach(function(btn){
+      btn.addEventListener('click',function(){
+        var t=btn.getAttribute('data-tab');
+        tabs.forEach(function(b){b.classList.toggle('active', b===btn);});
+        if(providerForm) providerForm.hidden = (t!=='provider');
+        if(promptForm) promptForm.hidden = (t!=='prompt');
+        var url=new URL(window.location.href);
+        if(t==='prompt') url.searchParams.set('tab','prompt'); else url.searchParams.delete('tab');
+        history.replaceState(null,'',url);
+      });
+    });
+
+    // Live preview + hint
+    var modeEl=document.getElementById('id_prompt_mode');
+    var nameEl=document.getElementById('id_prompt_assistant_name');
+    var toneEl=document.getElementById('id_prompt_tone');
+    var langEl=document.getElementById('id_prompt_language');
+    var lenEl=document.getElementById('id_prompt_answer_length');
+    var emojiEl=document.getElementById('id_prompt_use_emoji');
+    var ctxEl=document.getElementById('id_prompt_business_context');
+    var sysEl=document.getElementById('id_system_prompt');
+    var preview=document.getElementById('prompt-preview');
+    var hint=document.getElementById('mode-hint');
+    function toneFa(v){
+      var m={friendly:'صمیمی، گرم و دوستانه اما حرفه‌ای',formal:'رسمی، دقیق و حرفه‌ای',concise:'مختصر، مستقیم و بدون حاشیه',playful:'شوخ‌طبع و خلاق اما محترمانه',supportive:'همدل، حمایتی و اطمینان‌بخش'};
+      return m[v]||m.friendly;
+    }
+    function build(){
+      var name=(nameEl&&nameEl.value||'').trim()||'دستیار هوشمند';
+      var business=(ctxEl&&ctxEl.value||'').trim();
+      var tone=toneEl&&toneEl.value||'friendly';
+      var lang=langEl&&langEl.value||'fa';
+      var length=lenEl&&lenEl.value||'balanced';
+      var emoji=emojiEl&&emojiEl.checked;
+      var lengthFa={short:'پاسخ‌ها کوتاه و خلاصه باشد.',balanced:'پاسخ‌ها متعادل: کامل اما بدون اطاله.',detailed:'پاسخ‌ها مفصل، با جزئیات و مثال در صورت نیاز.'}[length]||'';
+      var langFa={fa:'زبان پیش‌فرض فارسی است.',en:'Default language is English.',auto:'به زبان کاربر (فارسی یا انگلیسی) پاسخ بده.'}[lang]||'';
+      var parts=['تو «'+name+'» هستی — دستیار هوشمند همین سایت.','لحن تو '+toneFa(tone)+' است.',langFa,lengthFa,'فقط بر اساس متن منابع و گفت‌وگوی مجاز پاسخ بده، حدس نزن، و اگر اطلاعات کافی نیست شفاف اعلام کن.'];
+      if(business) parts.splice(1,0,'کسب‌وکار: '+business.slice(0,600));
+      if(!emoji) parts.push('از ایموجی استفاده نکن.');
+      parts.push('اگر کاربر خارج از موضوع سایت سؤال کرد، مؤدبانه به موضوع اصلی برگرد.');
+      return parts.join(' ');
+    }
+    function render(){
+      if(!preview) return;
+      var mode=modeEl&&modeEl.value||'auto';
+      if(mode==='auto'){
+        preview.textContent=build();
+        if(hint) hint.textContent='حالت: سازنده هوشمند — این متن به‌عنوان System Prompt استفاده می‌شود.';
+      } else {
+        var raw=sysEl&&sysEl.value.trim();
+        if(raw){
+          preview.textContent=raw;
+          if(hint) hint.textContent='حالت: ویرایش دستی — متن بالا (System Prompt دستی) استفاده می‌شود.';
+        } else {
+          preview.textContent=build();
+          if(hint) hint.textContent='حالت: ویرایش دستی ولی System Prompt خالی است — فعلا همان خروجی سازنده استفاده می‌شود.';
+        }
+      }
+    }
+    [modeEl,nameEl,toneEl,langEl,lenEl,emojiEl,ctxEl,sysEl].forEach(function(el){
+      if(!el) return;
+      el.addEventListener('input',render); el.addEventListener('change',render);
+    });
+    render();
+  })();
+  </script>
+{% endblock %}

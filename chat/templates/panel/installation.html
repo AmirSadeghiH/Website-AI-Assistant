@@ -1,0 +1,60 @@
+{% extends "panel/base.html" %}
+{% block title %}نصب و راه‌اندازی{% endblock %}
+{% block page_title %}نصب و راه‌اندازی{% endblock %}
+{% block page_sub %}دامنه‌های مجاز و کد نصب ویجت روی سایت مشتری{% endblock %}
+
+{% block topbar_actions %}
+  <form method="post" action="{% url 'panel:installation-rotate-key' %}">
+    {% csrf_token %}
+    <button class="btn btn-ghost" type="submit" onclick="return confirm('کلید نصب جدید ساخته شود؟ کد قبلی روی سایت مشتری از کار می‌افتد.')">🔄 تولید کلید جدید</button>
+  </form>
+{% endblock %}
+
+{% block content %}
+  <div class="grid grid-2 mb">
+    <div class="card card-pad">
+      <h3 class="card-title mb">دامنه‌های مجاز</h3>
+      <form method="post">
+        {% csrf_token %}
+        <div class="field">
+          <label for="{{ form.widget_public_key.id_for_label }}">{{ form.widget_public_key.label }}</label>
+          {{ form.widget_public_key }}
+          <div class="helptext">این کلید در کد نصب استفاده می‌شود و فقط هویت نصب را نشان می‌دهد؛ کنترل دسترسی واقعی با دامنه‌های مجاز انجام می‌شود.</div>
+        </div>
+        <div class="field mt">
+          <label for="{{ form.widget_allowed_origins.id_for_label }}">{{ form.widget_allowed_origins.label }}</label>
+          {{ form.widget_allowed_origins }}
+          <div class="helptext">{{ form.widget_allowed_origins.help_text }}</div>
+        </div>
+        <button class="btn btn-primary mt" type="submit">ذخیره</button>
+      </form>
+    </div>
+
+    <div class="card card-pad">
+      <h3 class="card-title mb">کد نصب</h3>
+      <p class="small muted">این کد را قبل از بسته شدن تگ <span class="mono">&lt;/body&gt;</span> در سایت مشتری قرار دهید:</p>
+      <div class="code-block">
+        <button class="copy-btn" type="button" data-target="install-snippet">کپی</button>
+        <pre id="install-snippet" style="margin:0;white-space:pre-wrap">{{ snippet }}</pre>
+      </div>
+      <div class="mt small muted">
+        <div>• آدرس پایه: <span class="mono">{{ base_url }}</span></div>
+        <div>• صفحه آزمون: <a class="table-link" href="{{ demo_url }}" target="_blank" rel="noopener">{{ demo_url }}</a></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card card-pad">
+    <h3 class="card-title mb">راهنمای امنیت نصب</h3>
+    <div class="grid grid-2">
+      <div class="small">
+        <p><strong>۱. کنترل دسترسی با دامنه:</strong> ویجت فقط در دامنه‌های فهرست‌شده بالا پاسخ می‌گیرد. درخواست‌های سایر دامنه‌ها با خطای 403 رد می‌شوند — حتی اگر کلید را کپی کرده باشند.</p>
+        <p><strong>۲. نرخ مجاز:</strong> هر بازدیدکننده به‌صورت خودکار محدودیت نرخ دارد؛ سوءاستفاده تأثیری روی هزینه‌ی LLM شما نمی‌گذارد.</p>
+      </div>
+      <div class="small">
+        <p><strong>۳. چرخش کلید:</strong> اگر کلید لو رفت، با دکمه‌ی «تولید کلید جدید» آن را عوض کنید و کد نصب را به‌روز کنید.</p>
+        <p><strong>۴. Wildcard:</strong> برای زیردامنه‌ها از الگوی <span class="mono">https://*.example.com</span> استفاده کنید (خود example.com را هم جداگانه اضافه کنید).</p>
+      </div>
+    </div>
+  </div>
+{% endblock %}

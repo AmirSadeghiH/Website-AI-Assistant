@@ -1,0 +1,67 @@
+{% extends "panel/base.html" %}
+{% block title %}مکالمات{% endblock %}
+{% block page_title %}مکالمات{% endblock %}
+{% block page_sub %}بررسی و پیگیری گفتگوهای کاربران{% endblock %}
+
+{% block content %}
+  <form method="get" class="filters">
+    <input type="text" name="q" value="{{ query }}" placeholder="جستجو در متن پیام‌ها…" style="min-width:220px">
+    <select name="status" onchange="this.form.submit()">
+      <option value="">همه وضعیت‌ها</option>
+      <option value="open" {% if status_filter == 'open' %}selected{% endif %}>باز</option>
+      <option value="resolved" {% if status_filter == 'resolved' %}selected{% endif %}>حل‌شده</option>
+      <option value="handed_off" {% if status_filter == 'handed_off' %}selected{% endif %}>ارجاع‌شده</option>
+    </select>
+    <select name="intent" onchange="this.form.submit()">
+      <option value="">همه نیت‌ها</option>
+      {% for value, label in intent_choices %}
+        <option value="{{ value }}" {% if intent_filter == value %}selected{% endif %}>{{ label }}</option>
+      {% endfor %}
+    </select>
+    <select name="days" onchange="this.form.submit()">
+      <option value="7" {% if days == '7' %}selected{% endif %}>۷ روز</option>
+      <option value="30" {% if days == '30' %}selected{% endif %}>۳۰ روز</option>
+      <option value="90" {% if days == '90' %}selected{% endif %}>۹۰ روز</option>
+      <option value="all" {% if days == 'all' %}selected{% endif %}>همه</option>
+    </select>
+    <button class="btn btn-primary btn-sm" type="submit">جستجو</button>
+  </form>
+
+  <div class="card table-wrap">
+    <table>
+      <thead>
+        <tr><th>مکالمه</th><th>وضعیت</th><th>نیت‌ها</th><th>پیام‌ها</th><th>منشأ</th><th>شروع</th><th>آخرین فعالیت</th></tr>
+      </thead>
+      <tbody>
+        {% for conv in items %}
+          <tr>
+            <td>
+              <a class="table-link" href="{% url 'panel:conversation-detail' conv.pk %}">مکالمه #{{ conv.pk }}</a>
+              <div class="small muted mono">{{ conv.conversation_id|truncatechars:20 }}</div>
+            </td>
+            <td>
+              {% if conv.status == "resolved" %}<span class="badge-pill ok"><span class="dot"></span>حل‌شده</span>
+              {% elif conv.status == "handed_off" %}<span class="badge-pill warn"><span class="dot"></span>ارجاع‌شده</span>
+              {% else %}<span class="badge-pill info"><span class="dot"></span>باز</span>{% endif %}
+            </td>
+            <td class="small muted">{{ conv.get_first_intent_display }}{% if conv.last_intent and conv.last_intent != conv.first_intent %} → {{ conv.get_last_intent_display }}{% endif %}</td>
+            <td class="num">{{ conv.message_count }}</td>
+            <td class="small muted">{{ conv.get_origin_display|default:conv.origin }}</td>
+            <td class="small muted">{{ conv.created_at|date:"m/d H:i" }}</td>
+            <td class="small muted">{{ conv.updated_at|date:"m/d H:i" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="7"><div class="empty"><div class="empty-icon">💬</div>مکالمه‌ای در این بازه یافت نشد</div></td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if pages > 1 %}
+    <div class="card pager mt" style="padding:0">
+      {% if page > 1 %}<a href="?page={{ page|add:'-1' }}&q={{ query }}&status={{ status_filter }}&intent={{ intent_filter }}&days={{ days }}">قبلی</a>{% endif %}
+      <span class="current">{{ page }} / {{ pages }}</span>
+      {% if page < pages %}<a href="?page={{ page|add:'1' }}&q={{ query }}&status={{ status_filter }}&intent={{ intent_filter }}&days={{ days }}">بعدی</a>{% endif %}
+    </div>
+  {% endif %}
+{% endblock %}

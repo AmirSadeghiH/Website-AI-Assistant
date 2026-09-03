@@ -3,12 +3,14 @@
 یک پلتفرم کامل و آماده‌ی فروش برای افزودن دستیار پشتیبانی هوشمند (RAG) به
 سایت مشتری. مشتری فقط یک تگ اسکریپت را در سایتش قرار می‌دهد و همه‌چیز —
 ظاهر ویجت، کلیدهای API مدل‌ها، مدل LLM، مدل embedding، اسناد دانش و
-محدودیت‌ها — از پنل ادمین Django مدیریت می‌شود.
+محدودیت‌ها — از پنل مدیریت اختصاصی (`/panel/`) مدیریت می‌شود.
 
 - **بک‌اند:** Django 6.1 + Django REST Framework
 - **موتور RAG:** FAISS (بازیابی برداری) + مدل embedding مبتنی بر API
 - **مدل پاسخ‌دهنده:** هر API سازگار با OpenAI (پیش‌فرض: GapGPT / DeepSeek)
-- **ویجت:** جاوااسکریپت بدون وابستگی، Shadow DOM، بدون نیاز به فریم‌ورک
+- **ویجت:** جاوااسکریپت بدون وابستگی، Shadow DOM، استریم SSE، بدون فریم‌ورک
+- **پنل اختصاصی:** RTL فارسی در `/panel/` با داشبورد Chart.js و پیش‌نمایش زنده
+- **پنل فنی:** Django admin در `/admin/` برای کارهای عمیق‌تر
 
 ---
 
@@ -31,29 +33,44 @@
 
 ## امکانات
 
+- **استریم پاسخ (SSE):** پاسخ توکن‌به‌توکن در `/api/chat/stream/` با دکمه‌ی
+  توقف؛ در صورت عدم پشتیبانیِ پروکسی، خودکار به مسیر JSON برمی‌گردد.
+- **ارجاع به کارشناس انسانی:** سه کانال (تلگرام / واتساپ / فرم تماس) +
+  فرم درون‌ویجتی؛ پس از هر پاسخ جایگزین (fallback) پیشنهاد می‌شود و در
+  پنل ثبت می‌گردد.
+- **جذب سرنخ (Lead capture):** فرم نام + ایمیل/تلفن با honeypot ضد ربات،
+  اتصال به مکالمه، اعلان ایمیلی/تلگرامی به مدیر.
+- **سؤالات بی‌پاسخ:** هر fallback با کلید پرسش نرمال‌شده تجمیع و در پنل
+  قابل علامت‌گذاری «حل‌شده» است — نقشه‌ی تقویت دانش.
+- **تشخیص نیت (Intent):** قانون‌محور (تماس/قیمت/سفارش/شکایت/سلام و…) با
+  نرمال‌سازی فارسی؛ روی مکالمات و داشبورد گزارش می‌شود.
+- **کرالر سایت (Website Crawler):** ورود فقط یک URL؛ BFS تا `max_pages`،
+  رعایت robots.txt، محدودیت ۳MB/صفحه، و **گارد SSRF** (رد IPهای خصوصی/
+  loopback/link-local، ریدایرکت‌ها دوباره اعتبارسنجی می‌شوند).
+- **پنل اختصاصی `/panel/`:** داشبورد KPI + نمودار (حجم روزانه، توزیع نیت،
+  fallback)، مکالمات با ترنسکریپت کامل، سرنخ‌ها، درخواست‌های پشتیبانی،
+  پایگاه دانش (اسناد + کرالر)، **طراحی ویجت با پیش‌نمایش زنده**،
+  **کد نصب با دکمه‌ی کپی**، ویزارد ۶ مرحله‌ای راه‌اندازی و تنظیمات AI.
 - **نصب آسان ویجت:** فقط یک تگ `<script>`؛ تنظیمات ظاهری و رفتاری به‌صورت
   خودکار از `/api/widget-config/` خوانده می‌شود.
-- **مدیریت کامل از پنل ادمین:**
+- **مدیریت کامل از پنل:**
   - کلید API مدل LLM، آدرس (Base URL)، نام مدل، حداکثر توکن، تایم‌اوت و
     تعداد تلاش مجدد — رمزنگاری‌شده در پایگاه داده.
-  - کلید API، آدرس و مدل embedding.
+  - کلید API، آدرس و مدل embedding + توکن تلگرام برای اعلان‌ها.
   - ظاهر ویجت: عنوان، رنگ، فونت، موقعیت، اندازه، لوگو، پیام خوش‌آمد،
     پیشنهادها، لینک FAQ / Privacy / ایمیل پشتیبانی.
-  - رفتار: نمایش تاریخچه، بازخورد، نمایش «Powered by».
-  - هوش مصنوعی: دما (temperature)، سیستم‌پرامپت، پرامپت کاربر، نام مدل.
-- **اسناد دانش:** آپلود PDF / TXT / DOCX تا ۲۵ مگابایت، پردازش در پس‌زمینه،
-  وضعیت `Uploaded → Queued → Processing → Ready/Failed`، chunk بندی هوشمند
-  جمله‌ای با overlap و ساخت embedding.
-- **مکالمه و بازخورد:** ذخیره تاریخچه، توکن امنیت مکالمه، بازخورد مفید/نامفید،
-  رویدادهای تحلیلی.
-- **امنیت:** کلیدهای provider فقط روی سرور، رمزنگاری‌شده در DB؛ allowlist
-  دامنه‌ی میزبان؛ کلید عمومی نصب؛ throttling بر اساس IP؛ جلوگیری از
-  payload بزرگ، ZIP bomb و XML bomb؛ بدون اجرای جاوااسکریپت در پاسخ‌ها.
-- **آنبوردینگ مشتری بدون دسترسی به سرور:** کلید عمومی نصب و دامنه‌های مجاز
-  از پنل ادمین مدیریت می‌شوند (روی CORS هم اعمال می‌شوند)؛ متغیرهای محیطی
-  فقط fallback هستند.
-- **عملکرد:** پاسخ‌های تکراری کش می‌شوند، همزمانی LLM محدود و قابل تنظیم،
-  ایندکس‌های دیتابیس، و پشتیبانی Redis برای throttling اشتراکی بین workerها.
+  - رفتار: استریم، منابع (citations)، فرم سرنخ، ارجاع انسانی، بازخورد،
+    پنجره‌ی تاریخچه (context window).
+- **اسناد دانش:** آپلود PDF / TXT / DOCX تا ۲۵ مگابایت، پردازش در پس‌زمینه
+  (`manage.py runworker`)، وضعیت `Uploaded → Queued → Processing → Ready/Failed`،
+  chunk بندی جمله‌ای با overlap.
+- **مکالمه و بازخورد:** ذخیره‌ی مکالمه + توکن HMAC، بازیابی تاریخچه در
+  بازدید بعدی، بازخورد مفید/نامفید به‌ازای هر پیام، رویدادهای تحلیلی.
+- **امنیت:** کلیدهای provider فقط روی سرور و رمزنگاری‌شده؛ allowlist دامنه؛
+  کلید عمومی نصب؛ throttling چندلایه؛ honeypot؛ جلوگیری از payload بزرگ،
+  ZIP bomb و XML bomb؛ SSRF-gard کرالر؛ بدون XSS.
+- **عملکرد:** کش پاسخ، همزمانی محدود و قابل تنظیم، ایندکس‌های دیتابیس،
+  Redis برای throttling اشتراکی.
 
 ---
 
@@ -70,14 +87,19 @@
    Django + DRF  (nginx → gunicorn → Django)
         │
         ├── /api/chat/          → RAGService → Retriever(FAISS) → LLM API
+        ├── /api/chat/stream/   → همان مسیر با استریم SSE (meta/token/done)
         ├── /api/widget-config/ → تنظیمات ظاهری (کش‌شده)
-        ├── /api/history/       → تاریخچه مکالمه (نیازمند توکن مکالمه)
+        ├── /api/history/       → تاریخچه مکالمه (نیازمند توکن HMAC)
+        ├── /api/feedback/      → بازخورد مفید/نامفید به‌ازای پیام
+        ├── /api/leads/         → فرم سرنخ (honeypot + throttle)
+        ├── /api/handoff/       → ارجاع به کارشناس انسانی
         ├── /api/events/        → رویدادهای تحلیلی
-        ├── /api/feedback/      → بازخورد پاسخ
-        └── /admin/             → پنل مدیریت (Jazzmin)
-                                   ├── Widget settings
-                                   ├── AI provider settings (کلیدها و مدل‌ها)
-                                   └── Knowledge documents (embedding)
+        ├── /panel/             → پنل اختصاصی (داشبورد، دانش، طراحی، نصب)
+        └── /admin/             → پنل فنی Django (CRUD عمیق)
+
+  worker (docker compose سرویس worker / runworker):
+         ├── CrawlJob  → کرال سایت مشتری با SSRF-gard
+         └── Document  → پردازش و ساخت embedding
 
 ذخیره‌سازی:
   PostgreSQL (یا SQLite برای توسعه) + Redis (کش و throttling)
@@ -105,10 +127,14 @@ python -m venv .venv
 .\.venv\Scripts\python.exe manage.py migrate
 .\.venv\Scripts\python.exe manage.py createsuperuser
 .\.venv\Scripts\python.exe manage.py runserver
+
+# در ترمینال جدا — worker پردازش اسناد و کرال:
+.\.venv\Scripts\python.exe manage.py runworker --loop
 ```
 
+- **پنل اختصاصی:** `http://127.0.0.1:8000/panel/` (نقطه‌ی ورود اصلی محصول)
 - صفحه تست ویجت: `http://127.0.0.1:8000/demo/`
-- پنل مدیریت: `http://127.0.0.1:8000/admin/`
+- پنل فنی: `http://127.0.0.1:8000/admin/`
 - سلامت سرویس: `http://127.0.0.1:8000/api/health/`
 
 > بدون `.env` و در حالت غیر DEBUG، پروژه با خطای واضح «SECRET_KEY is
@@ -217,11 +243,14 @@ origin) و throttling هستند.
 
 | Method | مسیر | توضیح |
 | --- | --- | --- |
-| POST | `/api/chat/` | ارسال پیام و دریافت پاسخ |
+| POST | `/api/chat/` | ارسال پیام و دریافت پاسخ JSON |
+| POST | `/api/chat/stream/` | همان درخواست با استریم SSE |
 | GET | `/api/widget-config/` | تنظیمات عمومی ویجت (کش عمومی ۱۰ ثانیه) |
 | GET | `/api/history/?conversation_id=...` | حداکثر ۱۰۰ پیام آخر (نیازمند `X-Conversation-Token`) |
-| POST | `/api/events/` | رویداد تحلیلی (فقط `widget_loaded` و `fallback_triggered` از سمت کلاینت) |
-| POST | `/api/feedback/` | ثبت بازخورد مفید/نامفید روی یک پاسخ |
+| POST | `/api/feedback/` | بازخورد مفید/نامفید روی یک پیام (`message_id` + توکن) |
+| POST | `/api/leads/` | ثبت سرنخ (honeypot: فیلد `website`) |
+| POST | `/api/handoff/` | درخواست ارجاع به کارشناس (`channel`: email/telegram/whatsapp/contact_form) |
+| POST | `/api/events/` | رویداد تحلیلی (فقط انواع client-writable) |
 | GET | `/api/health/` | سلامت دیتابیس و corpus |
 
 **درخواست چت:**
@@ -230,7 +259,7 @@ origin) و throttling هستند.
 {
   "message": "سؤال کاربر",
   "conversation_id": "conv_abc123",
-  "history": []
+  "page_url": "https://customer.example/product/1"
 }
 ```
 
@@ -241,8 +270,22 @@ origin) و throttling هستند.
   "answer": "پاسخ دستیار",
   "conversation_id": "conv_abc123",
   "conversation_token": "hmac-token",
-  "message_id": 42
+  "message_id": 42,
+  "citations": [{"title": "سؤالات متداول", "url": "https://…", "page_number": 1}],
+  "intent": "pricing",
+  "fallback": false,
+  "latency_ms": 1830
 }
+```
+
+**رویدادهای استریم (`/api/chat/stream/`):**
+
+```text
+event: meta   data: {"conversation_id": "…", "conversation_token": "…", "intent": "pricing"}
+event: token  data: {"t": "پاسخ "}
+event: token  data: {"t": "دستیار…"}
+event: done   data: {"message_id": 42, "citations": [...], "fallback": false, "latency_ms": 1830}
+event: error  data: {"code": "capacity_limited", "message": "…"}   (فقط در خطا)
 ```
 
 توکن مکالمه با HMAC از `SECRET_KEY` ساخته می‌شود و فقط در صورت تنظیم
@@ -263,6 +306,29 @@ origin) و throttling هستند.
 ---
 
 ## استقرار Production
+
+### گزینه‌ی الف) Docker Compose روی VPS (توصیه‌شده)
+
+```bash
+# ۱) .env را بسازید (بر اساس .env.example)
+# ۲) دامنه در nginx.conf را عوض کنید
+docker compose up -d --build
+docker compose exec web python manage.py createsuperuser
+# سرویس‌ها: web (gunicorn) + worker (runworker) + postgres + redis + nginx + certbot
+```
+
+### گزینه‌ی ب) Railway
+
+1. ریپو را به Railway وصل کنید — `railway.json` را می‌خواند
+   (Dockerfile build + preDeploy migrate/collectstatic + healthcheck `/api/health/`).
+2. متغیرهای `.env` را در تنظیمات Railway وارد کنید (Redis و Postgres از
+   marketplace Railway).
+3. برای worker (پردازش اسناد/کرال) یک سرویس دوم از همین ریپو بسازید با
+   Start Command دستی:
+   `python manage.py runworker --loop --interval 5`
+4. Railway ترافیک HTTP را خودش TLS می‌کند؛ `TRUST_PROXY_SSL=True` بگذارید.
+
+### دستی (VPS بدون Docker)
 
 ### پیش‌نیازها
 
@@ -358,10 +424,11 @@ WantedBy=multi-user.target
 | ریسک | راه‌حل |
 | --- | --- |
 | دزدیده‌شدن کلید LLM/embedding | کلیدها هرگز در مرورگر نیستند؛ فقط روی سرور و رمزنگاری‌شده در DB (`enc:v1:` + Fernet) |
-| استفاده از API توسط سایت‌های دیگر | کلید و دامنه‌های مجاز (از پنل یا env) + throttling |
-| خواندن مکالمه دیگران | `conversation_token` (HMAC با SECRET_KEY) برای history و feedback |
-| سوءاستفاده از endpointها | throttling بر اساس IP (`WIDGET_RATE` و…) + محدودیت حجم بدنه (۶۴KB، نیازمند Content-Length) |
-| XSS در ویجت | Shadow DOM + escape کامل متن‌ها + فقط Markdown محدود؛ لینک‌های غیر http(s)/mailto نمایش داده نمی‌شوند |
+| استفاده از API توسط سایت‌های دیگر | کلید و دامنه‌های مجاز (از پنل یا env) + throttling چندلایه |
+| خواندن مکالمه دیگران | `conversation_token` (HMAC با SECRET_KEY) برای history و feedback و اتصال lead |
+| جعل سرنخ/اسپم فرم تماس | honeypot فیلد `website` (پذیرش جعلی بدون ذخیره) + `WIDGET_LEADS_RATE` / `WIDGET_HANDOFF_RATE` |
+| SSRF از طریق کرالر | فقط http/https، بدون userinfo، DNS باید public/global باشد، ریدایرکت‌ها دوباره اعتبارسنجی، سقف ۳MB و رعایت robots.txt |
+| XSS در ویجت | Shadow DOM + escape کامل متن‌ها + Markdown محدود؛ لینک‌های غیر http(s)/mailto نمایش داده نمی‌شوند |
 | ZIP bomb / XML bomb در DOCX | محدودیت تعداد/حجم بخش‌های zip + `defusedxml` |
 | فایل جعلی با پسوند مجاز | بررسی magic bytes (sniff) پیش از پردازش |
 | کلید ضعیف یا گم‌شده | در Production بدون `SECRET_KEY` پروژه اجرا نمی‌شود |
@@ -432,6 +499,7 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 | `WIDGET_PUBLIC_KEY` / `WIDGET_REQUIRE_KEY` | — / True در Production | کلید عمومی نصب (fallback؛ از پنل هم قابل تنظیم است) |
 | `WIDGET_ALLOWED_ORIGINS` | — | دامنه‌های مجاز میزبان ویجت (fallback؛ از پنل هم قابل تنظیم است) |
 | `WIDGET_RATE` / `WIDGET_EVENTS_RATE` / `WIDGET_FEEDBACK_RATE` | 30/minute / 120/minute / 60/minute | سقف نرخ بر اساس IP |
+| `WIDGET_LEADS_RATE` / `WIDGET_HANDOFF_RATE` | 10/minute / 10/minute | سقف ضداسپم فرم سرنخ و ارجاع انسانی |
 | `RAG_MAX_CONCURRENT` | 8 | حداکثر LLM هم‌زمان در هر process |
 | `RAG_RESPONSE_CACHE_SECONDS` | 60 | مدت کش پاسخ‌های تکراری |
 | `RAG_SEMANTIC_CACHE_SECONDS` / `RAG_SEMANTIC_CACHE_SIMILARITY` | 180 / 0.975 | کش معنایی پرسش‌های نزدیک؛ فقط برای سؤال بدون history |
@@ -455,12 +523,23 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-۴۹ تست: endpointهای API، احراز هویت کلید/origin (از env و پنل)، توکن
-مکالمه، CORS و preflight دامنه‌های پنل، محدودیت حجم بدنه و chunked،
-رمزنگاری کلیدها، جریان ProviderSettings به سرویس RAG، جلوگیری از ZIP
-bomb / XML bomb، sniff فایل، corpus خالی و پنل ادمین. پوشه‌ی مستقل
-`tests/` همچنین تست unit، integration، penetration و شبیه‌سازی ۱۰۰۰ کاربر
-هم‌زمان را دارد.
+**۹۰ تست** شامل: endpointهای API، استریم SSE (قرارداد meta/token/done)،
+تاریخچه و بازخورد با توکن HMAC، سرنخ‌ها (honeypot + throttle + اتصال
+مکالمه)، ارجاع انسانی، گارد SSRF کرالر، تشخیص نیت، احراز هویت کلید/origin
+(از env و پنل)، CORS و preflight، محدودیت حجم بدنه و chunked، رمزنگاری
+کلیدها، ZIP bomb / XML bomb، sniff فایل، corpus خالی، احراز هویت پنل
+`/panel/` و پنل ادمین.
+
+Smoke test صفحات پنل (خارج از test runner):
+
+```powershell
+python scripts/panel_smoke.py
+```
+
+Load test: `loadtest/locustfile.py` (locust) یا `loadtest/run_load_test.py`
+(بدون وابستگی) — گزارش واقعی در `loadtest/LOADTEST.md`: در ۲۰۰ کاربر
+هم‌زمان p50 سبک ۱۵ms، صفر خطای 5xx؛ زمان چت واقعی توسط LLM (~۲ تا ۵
+ثانیه) تعیین می‌شود.
 
 ---
 
@@ -469,10 +548,15 @@ bomb / XML bomb، sniff فایل، corpus خالی و پنل ادمین. پوش�
 | مشکل | راه‌حل |
 | --- | --- |
 | `SECRET_KEY is required in production` | `SECRET_KEY` را در `.env` بگذارید |
-| ویجت روی سایت مشتری کار نمی‌کند | دامنه‌ی سایت و کلید نصب را در پنل (AI provider settings → نصب ویجت) ثبت کنید؛ اگر `WIDGET_REQUIRE_KEY=True` است `data-widget-key` را در تگ بگذارید |
-| پاسخ «اطلاعات مرتبطی پیدا نشد» | اسناد را در پنل آپلود و پردازش کنید؛ یا سؤال را دقیق‌تر بپرسید |
+| ویجت روی سایت مشتری کار نمی‌کند | دامنه‌ی سایت و کلید نصب را در پنل (`/panel/installation/`) ثبت کنید؛ اگر `WIDGET_REQUIRE_KEY=True` است `data-widget-key` را در تگ بگذارید |
+| استریم کار نمی‌کند (پاسخ یکجا می‌آید) | پروکسی واسط buffering می‌کند؛ در nginx بلاک `location = /api/chat/stream/` با `proxy_buffering off` لازم است (در nginx.conf آماده است) |
+| فرم سرنخ ثبت نمی‌شود | حداقل یکی از ایمیل یا تلفن لازم است؛ نام ≥۲ کاراکتر |
+| اعلان تلگرام نمی‌آید | توکن ربات و chat id را در `/panel/ai-settings/` وارد کنید؛ در نبود آن، اعلان ایمیلی ارسال می‌شود |
+| کرالر «دامنه غیرعمومی» می‌گوید | کرالر به آدرس‌های داخلی/loopback اجازه نمی‌دهد (گارد SSRF)؛ URL عمومی بدهید |
+| پاسخ «اطلاعات مرتبطی پیدا نشد» | اسناد را در `/panel/knowledge/` آپلود یا سایت را کرال کنید؛ سؤالات بی‌پاسخ در پنل تجمیع می‌شوند |
 | خطای `corpus_config` | مدل embedding تغییر کرده است؛ همه اسناد را دوباره پردازش کنید |
 | همه کاربران یکجا 429 می‌گیرند | پشت proxy هستید؛ `TRUST_X_FORWARDED_FOR=True` + بازنویسی هدر در nginx |
 | `RAG_MAX_CONCURRENT` را عوض کردم ولی اثر نکرد | سقف semaphore هنگام اولین استفاده ساخته می‌شود؛ workerها را ری‌استارت کنید |
 | آپلود سند با خطای «محتوای فایل با پسوند آن هم‌خوانی ندارد» | فایل واقعاً PDF/TXT/DOCX است؟ پسوند و محتوا باید یکی باشند |
+| اسناد/کرال پردازش نمی‌شوند | `runworker --loop` در حال اجراست؟ (در docker compose سرویس `worker` خودکار بالا می‌آید) |
 | پاسخ‌ها خیلی کندند | `LLM_MAX_RETRIES` را ۰ نگه دارید، کش پاسخ را بالا ببرید، و `RAG_MAX_CONCURRENT` را بررسی کنید |

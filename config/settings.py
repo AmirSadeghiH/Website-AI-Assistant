@@ -86,6 +86,15 @@ MIDDLEWARE = [
     'chat.middleware.MediaDocumentProtectionMiddleware',
 ]
 
+# The customizer's live preview embeds /panel/preview/ in a same-origin
+# iframe; Django's default X-Frame-Options: DENY would kill it.
+X_FRAME_OPTIONS = "SAMEORIGIN"
+
+# Panel is the only visible control room; the admin site's login URL is
+# still needed for redirects. LOGIN_URL must remain resolvable even though
+# the sidebar no longer links to /admin/.
+LOGIN_URL = "/admin/login/"
+
 ROOT_URLCONF = 'config.urls'
 
 DEFAULT_CHARSET = 'utf-8'
@@ -240,6 +249,8 @@ WIDGET_RATE = os.getenv("WIDGET_RATE", "30/minute")
 WIDGET_EVENTS_RATE = os.getenv("WIDGET_EVENTS_RATE", "120/minute")
 WIDGET_KEY_RATE = os.getenv("WIDGET_KEY_RATE", "1000/minute")
 WIDGET_FEEDBACK_RATE = os.getenv("WIDGET_FEEDBACK_RATE", "60/minute")
+WIDGET_LEADS_RATE = os.getenv("WIDGET_LEADS_RATE", "10/minute")
+WIDGET_HANDOFF_RATE = os.getenv("WIDGET_HANDOFF_RATE", "10/minute")
 RAG_MAX_CONCURRENT = int(os.getenv("RAG_MAX_CONCURRENT", "8"))
 RAG_RESPONSE_CACHE_SECONDS = int(
     os.getenv("RAG_RESPONSE_CACHE_SECONDS", "60")
@@ -260,6 +271,8 @@ REST_FRAMEWORK = {
         "widget_events": WIDGET_EVENTS_RATE,
         "widget_key": WIDGET_KEY_RATE,
         "widget_feedback": WIDGET_FEEDBACK_RATE,
+        "widget_leads": WIDGET_LEADS_RATE,
+        "widget_handoff": WIDGET_HANDOFF_RATE,
     },
     "UNAUTHENTICATED_USER": None,
 }

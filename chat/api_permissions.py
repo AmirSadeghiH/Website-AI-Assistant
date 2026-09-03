@@ -99,6 +99,63 @@ def _resolve_request_origin(request):
     return ""
 
 
+def _is_local_dev_origin(origin):
+    """True for loopback origins that must stay usable in DEBUG.
+
+    In local development the demo page (``/static/demo.html``) and the
+    customizer preview iframe (``/panel/preview/``) both run on
+    ``http://127.0.0.1:8000`` / ``http://localhost:8000``. Requiring the
+    operator to add those origins to the allow-list or to paste an
+    ``X-Widget-Key`` just to see the widget locally is hostile — and it is
+    exactly what produced the wall of ``403 Widget access is not authorized``
+    in the user's log. In ``DEBUG`` we therefore treat loopback as trusted
+    and bypass the strict key/origin gate; production (``DEBUG=False``) is
+    unchanged.
+    """
+    if not origin:
+        return False
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(origin.strip())
+        host = (parsed.hostname or "").lower()
+        return host in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or host.endswith(".localhost")
+    except Exception:
+        return False
+
+
+def _host_is_loopback(host):
+    h = (host or "").split(":")[0].strip().lower()
+    return h in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or h.endswith(".localhost")
+
+
+def _request_is_local(request):
+    """True when the HTTP request itself is loopback / same-host local.
+
+    ``_resolve_request_origin`` returns "" when the browser omits both
+    ``Origin`` and ``Referer`` (common for same-origin ``fetch`` in some
+    configurations) or when a non-browser client like the customizer's
+    ``fetch`` omits them. In that case ``_is_local_dev_origin("")`` is
+    False and the DEBUG bypass would never fire, even though
+    ``REMOTE_ADDR`` is 127.0.0.1 and ``Host`` is ``127.0.0.1:8000``. We
+    therefore also inspect ``Host`` and ``REMOTE_ADDR`` so the demo and
+    the preview iframe stay usable in local development without a widget
+    key.
+    """
+    origin = _resolve_request_origin(request)
+    if _is_local_dev_origin(origin):
+        return True
+    try:
+        host = request.get_host()
+    except Exception:
+        host = request.META.get("HTTP_HOST", "") or request.META.get("SERVER_NAME", "")
+    if _host_is_loopback(host):
+        return True
+    remote = (request.META.get("REMOTE_ADDR") or "").strip()
+    if remote in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+        return True
+    return False
+
+
 class WidgetAccessPermission(BasePermission):
     """
     Public widget access is intentionally not tied to a Django login.
@@ -118,6 +175,17 @@ class WidgetAccessPermission(BasePermission):
     def has_permission(self, request, view):
         configured_key, allowed_origins = get_widget_access_config()
         supplied_key = request.headers.get("X-Widget-Key", "")
+        origin = _resolve_request_origin(request)
+
+        # Local development exception: the demo page (``/static/demo.html``)
+        # and the customizer preview iframe (``/panel/preview/``) run on
+        # loopback. Requiring the operator to whitelist 127.0.0.1 or paste
+        # the X-Widget-Key just to see the widget locally is hostile and is
+        # exactly what produced the wall of 403s in the user's log.
+        # In DEBUG we trust loopback unconditionally; production (DEBUG=False)
+        # is unchanged and stays strict.
+        if getattr(settings, "DEBUG", False) and _request_is_local(request):
+            return True
 
         # Enforce key requirement in production
         if getattr(settings, "WIDGET_REQUIRE_KEY", False) and not configured_key:
@@ -131,7 +199,6 @@ class WidgetAccessPermission(BasePermission):
             return False
 
         # Origin/Referer validation with wildcard matching
-        origin = _resolve_request_origin(request)
         if origin and allowed_origins and not _origin_matches(origin, allowed_origins):
             return False
 
