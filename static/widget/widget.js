@@ -326,6 +326,10 @@
 
     /* Bubbles */
     .asw-col{max-width:100%;min-width:0}
+    /* overflow hardening: answers never escape the bubble */
+    .asw-bubble{max-width:100%}
+    .asw-bubble img,.asw-bubble video,.asw-bubble iframe{max-width:100%;height:auto}
+    .asw-bubble pre{max-width:100%}
     .asw-bubble{padding:11px 15px;font-size:var(--asw-font-size,14px);line-height:1.85;word-break:break-word;white-space:pre-wrap;overflow-wrap:anywhere;position:relative;text-align:start}
     .asw-row.bot .asw-bubble{background:color-mix(in srgb,var(--asw-bot-bg) 88%,transparent);color:var(--asw-bot-text);border:1px solid var(--asw-border);border-radius:18px 18px 6px 18px;box-shadow:0 1px 2px rgba(15,18,40,.04),0 6px 18px -10px rgba(15,18,40,.07);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
     @supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){.asw-row.bot .asw-bubble{background:var(--asw-bot-bg)}}

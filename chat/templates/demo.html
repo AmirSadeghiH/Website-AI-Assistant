@@ -1,0 +1,185 @@
+{% load static %}
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>دستیار هوشمند — دموی زنده</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/rastikerdar/vazirmatn@v33.003/Vazirmatn-font-face.css">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{
+      font-family:"Vazirmatn","Segoe UI",Tahoma,ui-sans-serif,system-ui,sans-serif;
+      background:#f3f4f9;color:#191c2e;line-height:1.7;
+      -webkit-font-smoothing:antialiased;
+    }
+    /* Top bar */
+    .topbar{
+      position:sticky;top:0;z-index:10;
+      display:flex;align-items:center;justify-content:space-between;gap:16px;
+      padding:14px 22px;
+      background:rgba(255,255,255,.88);backdrop-filter:blur(10px);
+      border-bottom:1px solid #e5e7f0;
+    }
+    .brand{display:flex;align-items:center;gap:11px;min-width:0}
+    .brand-mark{
+      width:38px;height:38px;border-radius:12px;
+      display:grid;place-items:center;color:#fff;font-weight:800;
+      background:linear-gradient(135deg,#4f46e5,#7c3aed);
+      box-shadow:0 8px 18px -10px rgba(79,70,229,.7);
+      flex:none;
+    }
+    .brand h1{font-size:15px;font-weight:800;letter-spacing:-.01em}
+    .brand p{font-size:12px;color:#62688a;margin-top:1px}
+    .topbar a{
+      font:inherit;font-size:12.5px;font-weight:700;
+      padding:9px 14px;border-radius:11px;
+      border:1px solid #e5e7f0;background:#fff;color:#191c2e;
+      text-decoration:none;display:inline-flex;align-items:center;gap:6px;
+    }
+    .topbar a:hover{border-color:#4f46e5;color:#4f46e5}
+    /* Hero */
+    .hero{
+      max-width:1120px;margin:0 auto;
+      display:grid;grid-template-columns:1.15fr .85fr;
+      gap:22px;padding:28px 22px 16px;
+    }
+    @media(max-width:900px){ .hero{grid-template-columns:1fr} }
+    .hero-copy{padding:8px 0 0}
+    .eyebrow{
+      display:inline-flex;align-items:center;gap:7px;
+      font-size:11.5px;font-weight:800;color:#4f46e5;
+      background:#eef0ff;border:1px solid #e5e7f0;border-radius:999px;
+      padding:5px 11px;
+    }
+    .dot{width:7px;height:7px;border-radius:99px;background:#10b981;box-shadow:0 0 0 4px rgba(16,185,129,.15)}
+    .hero h2{
+      font-size:clamp(24px,3.4vw,32px);font-weight:800;letter-spacing:-.02em;
+      line-height:1.25;margin:12px 0 10px;
+    }
+    .hero h2 span{background:linear-gradient(135deg,#4f46e5,#7c3aed);-webkit-background-clip:text;background-clip:text;color:transparent}
+    .lead{color:#62688a;font-size:14.5px;max-width:56ch}
+    .bullets{display:flex;flex-direction:column;gap:9px;margin-top:16px}
+    .bullet{display:flex;align-items:flex-start;gap:9px;font-size:13.5px;color:#191c2e}
+    .bullet i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;background:#eef0ff;color:#4f46e5;flex:none;margin-top:1px}
+    .bullet i svg{width:12px;height:12px}
+    .hint{margin-top:14px;font-size:12.5px;color:#62688a;background:#fff;border:1px dashed #e5e7f0;border-radius:12px;padding:10px 12px}
+    .hint strong{color:#191c2e}
+    /* Right card */
+    .card{
+      background:#fff;border:1px solid #e5e7f0;border-radius:18px;
+      box-shadow:0 1px 2px rgba(20,22,39,.05),0 16px 40px -18px rgba(20,22,39,.18);
+      overflow:hidden;
+    }
+    .card-head{padding:16px 18px 12px;border-bottom:1px solid #e5e7f0}
+    .card-head h3{font-size:14px;font-weight:800}
+    .card-head p{font-size:12.5px;color:#62688a;margin-top:3px}
+    .feature-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:14px}
+    .feature{
+      background:#fafbff;border:1px solid #eef0f6;border-radius:14px;
+      padding:12px 12px 11px;
+    }
+    .feature strong{font-size:12.5px}
+    .feature span{display:block;font-size:12px;color:#62688a;margin-top:2px;line-height:1.6}
+    /* Mini FAQ */
+    .mini-faq{padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px}
+    .q{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:10px 12px;border-radius:12px;
+      background:#f3f4f9;border:1px solid #eef0f6;
+      font-size:12.5px;font-weight:700;color:#191c2e;
+    }
+    .q small{color:#9aa0bd;font-weight:600}
+    /* Bottom bar */
+    .foot{max-width:1120px;margin:10px auto 0;padding:0 22px 28px;color:#9aa0bd;font-size:12px}
+    .foot a{color:#4f46e5;text-decoration:none;font-weight:700}
+    .foot a:hover{text-decoration:underline}
+    /* subtle widget callout arrow pointing at FAB */
+    .callout{
+      display:flex;align-items:center;gap:8px;
+      margin-top:14px;
+      font-size:12.5px;font-weight:700;color:#4f46e5;
+      background:#eef0ff;border:1px solid #e5e7f0;border-radius:999px;
+      padding:8px 12px;width:fit-content;
+    }
+    .callout svg{width:14px;height:14px}
+    @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">✦</div>
+      <div>
+        <h1>دستیار هوشمند</h1>
+        <p>ویجت پشتیبانی با پاسخ‌های دقیق از دانش خودِ سایت</p>
+      </div>
+    </div>
+    <a href="/panel/" target="_blank" rel="noopener">ورود به پنل مدیریت ↗</a>
+  </header>
+
+  <section class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="dot"></span>دموی زنده · تم فعال: {{ theme_label }} · متصل به پایگاه دانش همین پروژه</span>
+      <h2>پشتیبانی که <span>خودش جواب می‌دهد</span> — نه یک فرم تماسِ دیگر.</h2>
+      <p class="lead">
+        این یک دموی واقعی از ویجت قابل نصب روی هر سایتی است. هر سؤال را از «دانشِ سایتِ شما» جواب می‌دهد؛
+        اگر جوابی نبود، رک می‌گوید و پیشنهاد اتصال به کارشناس را نشان می‌دهد.
+      </p>
+      <div class="bullets">
+        <div class="bullet">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg></i>
+          پاسخ‌های فوری و استریم‌شده با ذکر منبع (citations)
+        </div>
+        <div class="bullet">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/></svg></i>
+          فرم سرنخ و اتصال به تلگرام/واتساپ/ایمیل وقتی به انسان نیاز است
+        </div>
+        <div class="bullet">
+          <i><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M9 12l2 2 4-4"/></svg></i>
+          شخصی‌سازی کامل رنگ، عنوان، آواتار و موقعیت از پنل طراحی
+        </div>
+      </div>
+      <div class="hint">
+        <strong>چطور تست کنم؟</strong>
+        روی دکمه‌ی پایین-گوشه‌ی صفحه بزنید، یک سؤال بپرسید و ببینید حباب‌ها، typing، citations و handoff چطور کار می‌کنند.
+        هر تغییری در <a href="/panel/customizer/" target="_blank" rel="noopener">طراحی ویجت</a> همین‌جا زنده اعمال می‌شود.
+      </div>
+      <div class="callout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 11l5-5 5 5"/><path d="M12 6v12"/></svg>
+        ویجت این پایین است — امتحانش کنید
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head">
+        <h3>این صفحه چیست؟</h3>
+        <p>یک سایت نمونه که ویجت داخلش نصب شده — درست مثل سایت مشتری شما.</p>
+      </div>
+      <div class="feature-grid">
+        <div class="feature"><strong>پایگاه دانش</strong><span>سند آپلود کنید یا یک سایت را crawl کنید؛ جواب‌ها از همان‌ها می‌آید.</span></div>
+        <div class="feature"><strong>پیش‌نمایش زنده</strong><span>تغییر رنگ/متن/جایگاه → همین دمو بدون رفرش به‌روز می‌شود.</span></div>
+        <div class="feature"><strong>گذر از MVP</strong><span>تایپوگرافی وزیرمتن، هدر شیشه‌ای، حباب‌های گرادیانی و سایه‌های واقعی.</span></div>
+        <div class="feature"><strong>اتصال انسانی</strong><span>وقتی اعتماد پاسخ پایین است، handoff خودکار پیشنهاد می‌شود.</span></div>
+      </div>
+      <div class="mini-faq">
+        <div class="q"><span>ساعات کاری‌تان چطوره؟</span><small>نمونه سؤال → امتحان کنید</small></div>
+        <div class="q"><span>قیمت‌گذاری چطوره؟</span><small>نمونه سؤال</small></div>
+        <div class="q"><span>چطور با پشتیبانی حرف بزنم؟</span><small>handoff را می‌بینید</small></div>
+      </div>
+    </div>
+  </section>
+
+  <p class="foot">
+    نکته: دموی زنده در <code style="direction:ltr;unicode-bidi:embed">/demo/</code> سرو می‌شود و همیشه «نسخه‌ی رابط کاربری» انتخاب‌شده در پنل را نشان می‌دهد.
+    نصبِ واقعی فقط یک تگ <code style="direction:ltr;unicode-bidi:embed">&lt;script&gt;</code> است —
+    کد را از <a href="/panel/installation/" target="_blank" rel="noopener">نصب ویجت</a> کپی کنید.
+  </p>
+
+  <script src="{{ base }}/static/widget/{{ widget_file }}"
+        data-api="{{ base }}/api/chat/"
+        data-widget-key="{{ widget_key }}"></script>
+</body>
+</html>

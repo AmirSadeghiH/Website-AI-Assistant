@@ -126,18 +126,37 @@ class WidgetConfig(models.Model):
         unique=True,
         editable=False,
     )
-    # Which widget bundle to serve: classic / onyx (professional) / linen (modern).
-    # The file is chosen by the installation snippet and the live preview.
+    # Which widget bundle to serve. The file is chosen by the installation
+    # snippet and the live preview; every bundle shares one config payload.
     widget_theme = models.CharField(
         max_length=20,
         choices=(
-            ("classic", "کلاسیک — سبک و پایدار"),
-            ("onyx", "حرفه‌ای (Onyx) — تیره و پرمیوم"),
-            ("linen", "مدرن (Linen) — روشن و مینیمال"),
+            ("classic", "کلاسیک — بنیادین و پایدار"),
+            ("onyx", "Onyx — تیره پرمیوم"),
+            ("linen", "Linen — روشن مینیمال"),
+            ("clay", "Clay — خمیری نرم"),
+            ("atomic", "Atomic — خطی تیز"),
+            ("fluen", "Fluen — فلویید"),
+            ("glassmo", "Glassmo — شیشه‌ای"),
+            ("md3", "Material 3"),
+            ("minimal", "Minimal — تک‌رنگ"),
+            ("neu", "Neu — نئومورف"),
+            ("skuermo", "Skuerdo — رترو"),
         ),
         default="classic",
-        help_text="نسخه‌ی رابط کاربری ویجت. هر سه از یک تنظیمات شخصی‌سازی استفاده می‌کنند.",
+        help_text="نسخه‌ی رابط کاربری ویجت؛ همه از یک تنظیمات شخصی‌سازی مشترک استفاده می‌کنند.",
     )
+
+    def widget_bundle_file(self) -> "str":
+        """Static filename of the configured theme, with disk-existence fallback."""
+        theme = self.widget_theme or "classic"
+        fname = "widget.js" if theme == "classic" else f"widget-{theme}.js"
+        from django.conf import settings
+
+        if not (settings.BASE_DIR / "static" / "widget" / fname).exists():
+            return "widget.js"
+        return fname
+
     business_name = models.CharField(max_length=200, default="AI Support")
     website_url = models.URLField(max_length=1000, blank=True)
     title = models.CharField(max_length=120, default="دستیار هوش مصنوعی")

@@ -11,7 +11,7 @@ from django.db import IntegrityError, transaction
 from django.contrib import messages as django_messages
 from django.contrib.admin.views.decorators import staff_member_required
 from django.http import StreamingHttpResponse
-from django.shortcuts import get_object_or_404, redirect
+from django.shortcuts import get_object_or_404, redirect, render
 from django.views.decorators.http import require_POST
 from rest_framework import status
 from rest_framework.exceptions import ParseError, ValidationError
@@ -212,6 +212,27 @@ def widget_config_payload(config):
         },
     }
     return payload
+
+
+def demo_page(request):
+    """Serve the demo page with the widget bundle matching the configured theme.
+
+    static/demo.html hardcodes widget.js and cannot change at runtime; the
+    themed page therefore lives in chat/templates/demo.html and this public
+    view renders it with the same theme→file mapping as the installation
+    snippet and the live preview.
+    """
+    config = WidgetConfig.objects.first()
+    provider = ProviderSettings.objects.first()
+    scheme = "https" if request.is_secure() else "http"
+    base = f"{scheme}://{request.get_host()}"
+    theme_label = config.get_widget_theme_display() if config else "کلاسیک"
+    return render(request, "demo.html", {
+        "base": base,
+        "widget_file": config.widget_bundle_file() if config else "widget.js",
+        "theme_label": theme_label,
+        "widget_key": provider.widget_public_key if provider else "",
+    })
 
 
 CORPUS_ARTIFACTS = (

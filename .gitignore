@@ -11,6 +11,12 @@ env/
 # Environment variables
 .env
 
+# Secrets / credentials that must never enter version control
+*.zip
+probe_out.txt
+Untitled
+.tmp-tree.txt
+
 # Django
 db.sqlite3
 media/

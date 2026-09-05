@@ -28,13 +28,14 @@
           <!-- UI variant picker: which widget bundle serves the site -->
           <div class="callout" style="background:#f0f0ff;border:1px solid #dfe3fd;border-radius:10px;padding:12px 14px;margin-bottom:14px">
             <strong style="color:#6366f1">نسخه رابط کاربری</strong>
-            <span class="small muted">— یکی از سه نسخه را انتخاب کن؛ کد نصب و پیش‌نمایش همان را سرو می‌کنند. شخصی‌سازی روی هر سه اعمال می‌شود.</span>
+            <span class="small muted">— یکی از نسخه‌ها را انتخاب کن؛ کد نصب و پیش‌نمایش همان را سرو می‌کنند. شخصی‌سازی روی همه اعمال می‌شود.</span>
             <div class="form-grid" style="margin-top:10px">
               {% for field in appearance %}
                 {% if field.name == "widget_theme" %}
-                  <div class="field full">
+                  <div class="field full theme-picker-field">
                     <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                     {{ field }}
+                    <div class="theme-cards" id="theme-cards" aria-hidden="true"></div>
                     {% if field.help_text %}<div class="helptext">{{ field.help_text }}</div>{% endif %}
                   </div>
                 {% endif %}
@@ -127,7 +128,7 @@
       <!-- Live preview column -->
       <div class="preview-frame-wrap">
         <span class="preview-label">پیش‌نمایش زنده</span>
-        <iframe id="preview-frame" src="{% url 'panel:preview' %}" title="پیش‌نمایش ویجت" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
+        <iframe id="preview-frame" src="{% url 'panel:preview' %}?theme={{ widget_theme }}" data-theme="{{ widget_theme }}" title="پیش‌نمایش ویجت" sandbox="allow-scripts allow-same-origin allow-forms"></iframe>
       </div>
     </div>
   </form>
@@ -274,6 +275,57 @@
       }
       form.addEventListener("input", schedulePush);
       form.addEventListener("change", schedulePush);
+
+      // ── Theme cards: visual picker mirroring the hidden select ──────
+      var THEMES = [
+        { id: "classic",  name: "کلاسیک",   en: "Classic",   swatch: ["#ffffff", "#eef0f6", "#4f46e5", "#e11d48"] },
+        { id: "onyx",     name: "Onyx",     en: "Premium",   swatch: ["#14161d", "#1e222c", "#6366f1", "#8b5cf6"] },
+        { id: "linen",    name: "Linen",    en: "Minimal",   swatch: ["#faf7f2", "#efe9de", "#b45309", "#0f766e"] },
+        { id: "clay",     name: "Clay",     en: "Soft 3D",   swatch: ["#efeaf7", "#dcd2ee", "#8b5cf6", "#34d399"] },
+        { id: "atomic",   name: "Atomic",   en: "Sharp",     swatch: ["#f8fafc", "#e2e8f0", "#0ea5e9", "#111827"] },
+        { id: "fluen",    name: "Fluen",    en: "Fluid",     swatch: ["#f5f7ff", "#dbe4ff", "#4f6ef7", "#a855f7"] },
+        { id: "glassmo",  name: "Glassmo",  en: "Glass",     swatch: ["#dfe9f5", "#b9cbe4", "#3b82f6", "#60a5fa"] },
+        { id: "md3",      name: "Material", en: "MD3",       swatch: ["#fffbfe", "#e7e0ec", "#6750a4", "#7d5260"] },
+        { id: "minimal",  name: "Minimal",  en: "Mono",      swatch: ["#fafafa", "#e5e5e5", "#171717", "#737373"] },
+        { id: "neu",      name: "Neu",      en: "Neumorph",  swatch: ["#e6e9f0", "#cdd3de", "#5b7cfa", "#8f5bfa"] },
+        { id: "skuermo",  name: "Skuerdo",  en: "Retro",     swatch: ["#f6f1e5", "#e7dfc9", "#b0563a", "#4f6b4a"] }
+      ];
+      (function buildThemeCards() {
+        var wrap = document.getElementById("theme-cards");
+        var sel = form.querySelector('select[name="widget_theme"]');
+        if (!wrap || !sel) return;
+        sel.style.display = "none";
+        function current() { return sel.value || "classic"; }
+        THEMES.forEach(function (t) {
+          var card = document.createElement("button");
+          card.type = "button";
+          card.className = "theme-card" + (current() === t.id ? " selected" : "");
+          card.setAttribute("data-theme", t.id);
+          card.title = t.name + " — " + t.en;
+          var sw = document.createElement("div");
+          sw.className = "theme-swatch";
+          t.swatch.forEach(function (c) {
+            var d = document.createElement("span");
+            d.style.background = c;
+            sw.appendChild(d);
+          });
+          var nm = document.createElement("div");
+          nm.className = "theme-name";
+          nm.textContent = t.name;
+          var en = document.createElement("div");
+          en.className = "theme-en";
+          en.textContent = t.en;
+          card.appendChild(sw); card.appendChild(nm); card.appendChild(en);
+          card.addEventListener("click", function () {
+            sel.value = t.id;
+            wrap.querySelectorAll(".theme-card").forEach(function (c) {
+              c.classList.toggle("selected", c === card);
+            });
+            schedulePush();       // preview iframe reloads with the new bundle
+          });
+          wrap.appendChild(card);
+        });
+      })();
 
       window.addEventListener("message", function (e) {
         if (e.data && e.data.type === "aiss:preview-ready") pushPreview();

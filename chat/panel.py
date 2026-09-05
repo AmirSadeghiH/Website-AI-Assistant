@@ -536,7 +536,7 @@ def installation(request):
     base = f"{scheme}://{host}"
     config = WidgetConfig.objects.first()
     theme = (config.widget_theme if config else "classic") or "classic"
-    widget_file = "widget.js" if theme == "classic" else f"widget-{theme}.js"
+    widget_file = config.widget_bundle_file() if config else "widget.js"
     snippet = (
         f'<script src="{base}/static/widget/{widget_file}"\n'
         f'        data-api="{base}/api/chat/"\n'

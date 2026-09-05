@@ -12,7 +12,9 @@ urlpatterns = [
     path('admin/', admin_site.urls),
     path('panel/', include("chat.panel_urls")),
     path('api/', include("chat.urls")),
-    path('demo/', RedirectView.as_view(url='/static/demo.html', permanent=False)),
+    # Themed demo page: serves static/demo.html with the widget bundle
+    # matching the panel-selected UI variant.
+    path('demo/', RedirectView.as_view(url='/api/demo/', permanent=False)),
     path('', RedirectView.as_view(url='/panel/', permanent=False)),
 ]
 

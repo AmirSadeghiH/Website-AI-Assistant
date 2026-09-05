@@ -2,6 +2,7 @@ from django.urls import path
 from .views import (
     chat,
     chat_stream,
+    demo_page,
     events,
     feedback,
     handoff,
@@ -21,4 +22,5 @@ urlpatterns = [
     path("feedback/", feedback, name="feedback"),
     path("leads/", leads, name="leads"),
     path("handoff/", handoff, name="handoff"),
+    path("demo/", demo_page, name="demo-page"),
 ]

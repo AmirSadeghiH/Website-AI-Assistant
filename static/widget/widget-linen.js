@@ -287,6 +287,9 @@
 
     /* Bubbles — printed cards */
     .asw-col{max-width:100%;min-width:0}
+    .asw-bubble{max-width:100%}
+    .asw-bubble img,.asw-bubble video,.asw-bubble iframe{max-width:100%;height:auto}
+    .asw-bubble pre{max-width:100%}
     .asw-bubble{padding:11px 15px;font-size:var(--asw-font-size,14px);line-height:1.9;word-break:break-word;white-space:pre-wrap;overflow-wrap:anywhere;position:relative;text-align:start}
     .asw-row.bot .asw-bubble{background:var(--asw-bot-bg);color:var(--asw-bot-text);border:1px solid var(--asw-border);border-radius:3px 14px 14px 14px;box-shadow:var(--asw-shadow-hard)}
     .asw-row.user .asw-bubble{background:var(--asw-user-bg);color:var(--asw-user-text);border-radius:14px 3px 14px 14px}

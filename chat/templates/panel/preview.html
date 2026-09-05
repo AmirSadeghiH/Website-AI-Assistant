@@ -41,12 +41,30 @@
     <div class="arw">ویجت همین‌جاست ↓ — روی دکمه‌ی پایین گوشه بزنید</div>
   </div>
   <!-- Preview widget instance: data-preview disables network calls -->
-  {% if request.GET.theme == "onyx" %}
-    <script src="{% static 'widget/widget-onyx.js' %}" data-preview="1"></script>
-  {% elif request.GET.theme == "linen" %}
-    <script src="{% static 'widget/widget-linen.js' %}" data-preview="1"></script>
-  {% else %}
-    <script src="{% static 'widget/widget.js' %}" data-preview="1"></script>
-  {% endif %}
+  {% with t=request.GET.theme %}
+    {% if t == "onyx" %}
+      <script src="{% static 'widget/widget-onyx.js' %}" data-preview="1"></script>
+    {% elif t == "linen" %}
+      <script src="{% static 'widget/widget-linen.js' %}" data-preview="1"></script>
+    {% elif t == "clay" %}
+      <script src="{% static 'widget/widget-clay.js' %}" data-preview="1"></script>
+    {% elif t == "atomic" %}
+      <script src="{% static 'widget/widget-atomic.js' %}" data-preview="1"></script>
+    {% elif t == "fluen" %}
+      <script src="{% static 'widget/widget-fluen.js' %}" data-preview="1"></script>
+    {% elif t == "glassmo" %}
+      <script src="{% static 'widget/widget-glassmo.js' %}" data-preview="1"></script>
+    {% elif t == "md3" %}
+      <script src="{% static 'widget/widget-md3.js' %}" data-preview="1"></script>
+    {% elif t == "minimal" %}
+      <script src="{% static 'widget/widget-minimal.js' %}" data-preview="1"></script>
+    {% elif t == "neu" %}
+      <script src="{% static 'widget/widget-neu.js' %}" data-preview="1"></script>
+    {% elif t == "skuermo" %}
+      <script src="{% static 'widget/widget-skuermo.js' %}" data-preview="1"></script>
+    {% else %}
+      <script src="{% static 'widget/widget.js' %}" data-preview="1"></script>
+    {% endif %}
+  {% endwith %}
 </body>
 </html>
