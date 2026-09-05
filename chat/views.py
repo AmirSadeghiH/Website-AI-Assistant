@@ -1038,16 +1038,3 @@ def _handoff_update(request, pk):
 # Backward compat aliases expected by panel_urls
 leads_update = _leads_update
 handoff_update = _handoff_update
-
-
-# ─── Business rules JSON for widget debug (staff only) ───────────────────
-@api_view(["GET"])
-@authentication_classes([])
-@permission_classes([])
-def business_rules_preview(request):
-    """Staff-only preview of active rules (used by widget debug tool)."""
-    if not request.user or not request.user.is_staff:
-        return Response({"error": "forbidden"}, status=403)
-    from .business_rules import get_active_rules
-    rules = get_active_rules()
-    return Response([{"id": r.pk, "name": r.name, "trigger_type": r.trigger_type, "trigger_value": r.trigger_value, "action_type": r.action_type, "action_label": r.action_label, "payload": r.action_payload} for r in rules])

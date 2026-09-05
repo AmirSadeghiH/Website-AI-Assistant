@@ -27,26 +27,29 @@ Kept 325 of 388 release-gate items (stack filter: any + django). Each item needs
 
 ## Pre-Release Gates — High-Risk “Must Not Exist” Search  [security]
 
-- [ ] (security.core.17-release-gates.a9100f3e) database password
-- [ ] (security.core.17-release-gates.ad701190) database connection string with credentials
-- [ ] (security.core.17-release-gates.04914dc2) JWT signing secret
-- [ ] (security.core.17-release-gates.ceaba9bb) Google service-account private key
-- [ ] (security.core.17-release-gates.da35d3b7) GitHub PAT
-- [ ] (security.core.17-release-gates.540fb8ee) GitHub runner token
-- [ ] (security.core.17-release-gates.88a07be0) Apple private signing key
-- [ ] (security.core.17-release-gates.7f359c38) OAuth client secret
-- [ ] (security.core.17-release-gates.be06a860) webhook signing secret
-- [ ] (security.core.17-release-gates.8289bd14) encryption key
-- [ ] (security.core.17-release-gates.b90c4147) private certificate key
-- [ ] (security.core.17-release-gates.a2f4245a) SSH private key
-- [ ] (security.core.17-release-gates.59eb0fcd) production `.env`
-- [ ] (security.core.17-release-gates.a9cda3c0) `.npmrc` credentials
-- [ ] (security.core.17-release-gates.ab632e50) package-manager authentication tokens
-- [ ] (security.core.17-release-gates.b40c5562) hard-coded admin passwords
-- [ ] (security.core.17-release-gates.dd7a3abc) test credentials that work against production
-- [ ] (security.core.17-release-gates.138ef7d5) debugging backdoors
-- [ ] (security.core.17-release-gates.f8595cec) hidden master/admin parameters
-- [ ] (security.core.17-release-gates.536e67e6) undocumented administrative endpoints
+> Reviewed 2026-09-05 — full-repo scan (py/js/html/json/yml/md/cfg/ini) with evidence.
+> 🔴 **ACTION REQUIRED:** the LLM API key (`sk-sOYZ…`) sat inside a tracked `ai-support-platform.zip` that was pushed to GitHub history (commits `af996d7`, `49abad9`). Zip now untracked+deleted, but **rotate the key and set a distinct `SECRET_KEY` before production.**
+
+- [x] (security.core.17-release-gates.a9100f3e) database password — none in source; DB creds only via env (`config/settings.py:123-135`), `.env` gitignored and never committed (`git log --all -- .env` empty)
+- [x] (security.core.17-release-gates.ad701190) database connection string with credentials — regex scan across repo: 0 matches
+- [x] (security.core.17-release-gates.04914dc2) JWT signing secret — no JWT anywhere; conversation tokens are HMAC over `SECRET_KEY` (`chat/conversation_tokens.py:15-26`)
+- [x] (security.core.17-release-gates.ceaba9bb) Google service-account private key — none (0 regex matches; no JSON key files)
+- [x] (security.core.17-release-gates.da35d3b7) GitHub PAT — none (0 regex matches)
+- [x] (security.core.17-release-gates.540fb8ee) GitHub runner token — N/A — no CI workflows exist (`.github/` absent)
+- [x] (security.core.17-release-gates.88a07be0) Apple private signing key — N/A — no mobile app
+- [x] (security.core.17-release-gates.7f359c38) OAuth client secret — N/A — no OAuth integration
+- [x] (security.core.17-release-gates.be06a860) webhook signing secret — N/A — no webhook receivers
+- [x] (security.core.17-release-gates.8289bd14) encryption key — `FIELD_ENCRYPTION_KEY` only read from env (`chat/encrypted_fields.py:24-30`), never hardcoded; fallback derives from `SECRET_KEY`
+- [x] (security.core.17-release-gates.b90c4147) private certificate key — no `.pem`/`.key`/`id_rsa` files on disk (now enforced by `chat/tests_secretscan.py::test_no_private_key_files_on_disk`)
+- [x] (security.core.17-release-gates.a2f4245a) SSH private key — none (same scan)
+- [x] (security.core.17-release-gates.59eb0fcd) production `.env` — `.env` is local-only, gitignored (`.gitignore:12`), never committed; **but a copy leaked inside the tracked zip (fixed this pass — rotate keys)**
+- [x] (security.core.17-release-gates.a9cda3c0) `.npmrc` credentials — file does not exist
+- [x] (security.core.17-release-gates.ab632e50) package-manager authentication tokens — none (0 regex matches)
+- [x] (security.core.17-release-gates.b40c5562) hard-coded admin passwords — source clean; only test fixtures (`chat/tests.py:458,870`, `chat/tests_security.py:572`) with clearly-fake values
+- [x] (security.core.17-release-gates.dd7a3abc) test credentials that work against production — fixtures live only in test files; nothing wired to any real account
+- [x] (security.core.17-release-gates.138ef7d5) debugging backdoors — no magic GET params / hidden superuser flags (grep clean); DEBUG loopback bypass is documented and DEBUG-gated (`chat/api_permissions.py:187-188`)
+- [x] (security.core.17-release-gates.f8595cec) hidden master/admin parameters — none (grep clean)
+- [x] (security.core.17-release-gates.536e67e6) undocumented administrative endpoints — all 19 panel routes are `@staff_member_required` (`chat/panel_urls.py:10-28`); `business_rules_preview` (`chat/views.py:1047`) is unrouted dead code with an in-code staff check
 
 ## Pre-Release Gates — Production Configuration Review  [security]
 
