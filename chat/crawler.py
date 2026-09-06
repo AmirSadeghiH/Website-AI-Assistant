@@ -427,6 +427,11 @@ def enqueue_crawl_job(job_id):
     first _log() call crashes with charmap/\\u06cc and the job fails
     instantly — that is the bug reported in the log excerpt.
     """
+    from .document_pipeline import should_spawn_inline_worker
+
+    if not should_spawn_inline_worker():
+        # Container mode: the runworker --loop process handles the queue.
+        return
     import os
     import subprocess
     import sys

@@ -9,6 +9,7 @@ psycopg2-binary==2.9.10
 
 # ─── Python tooling ─────────────────────────────────────────────────────
 gunicorn==23.0.0
+whitenoise==6.7.0
 python-dotenv==1.2.2
 cryptography==45.0.5
 filelock==3.32.2

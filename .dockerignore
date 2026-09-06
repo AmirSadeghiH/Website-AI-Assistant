@@ -1,0 +1,36 @@
+# ─── Secrets: NEVER bake into the image ──────────────────────────────────
+.env
+.env.*
+*.pem
+*.key
+
+# ─── Git / VCS ───────────────────────────────────────────────────────────
+.git
+.gitignore
+.gitattributes
+
+# ─── Local dev artifacts ─────────────────────────────────────────────────
+db.sqlite3
+db.sqlite3-journal
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+node_modules/
+
+# ─── Runtime data: mounted as volumes, not copied ────────────────────────
+Data/chunks.json
+Data/metadata.json
+Data/embeddings.npy
+Data/.corpus.lock
+media/
+staticfiles/
+embedding_jobs.log
+*.log
+
+# ─── Docs / tooling (not needed at runtime) ──────────────────────────────
+BLOCKERS.md
+loadtest/
+scripts/
+.ai/
+*.zip

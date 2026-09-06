@@ -89,11 +89,15 @@ class ChatEndpointTests(TestCase):
         self.assertEqual(response.json()["error"], "message_too_long")
 
     def test_health_endpoint(self):
+        # Health is the PaaS liveness probe: must answer without a widget key.
         response = self.client.get("/api/health/")
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "ok")
         self.assertEqual(response.json()["mode"], "single-site")
+        # No sensitive payload leaks through the open endpoint.
+        body = response.json()
+        self.assertEqual(set(body["checks"].keys()), {"database", "corpus"})
 
     @patch("chat.views.get_rag_service")
     def test_chat_maps_corpus_config_errors_to_503(self, get_rag_service):

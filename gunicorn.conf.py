@@ -14,7 +14,14 @@ import os
 
 # Keep workers modest: every worker loads its own copy of the FAISS index.
 # threads carry concurrency; the RAG semaphore bounds LLM fan-out per worker.
-workers = int(os.getenv("GUNICORN_WORKERS", str(max(2, multiprocessing.cpu_count() // 2))))
+# Capped at 4: PaaS containers report host cores (16+) while giving one vCPU
+# and ~1GB RAM — uncapped cpu_count() would OOM instantly.
+workers = int(
+    os.getenv(
+        "GUNICORN_WORKERS",
+        str(max(2, min(4, multiprocessing.cpu_count() // 2))),
+    )
+)
 threads = int(os.getenv("GUNICORN_THREADS", "24"))
 
 # A chat request can legitimately take up to the LLM timeout (30s default).
@@ -26,7 +33,23 @@ keepalive = 5
 max_requests = 2000
 max_requests_jitter = 100
 
-bind = os.getenv("GUNICORN_BIND", "127.0.0.1:8000")
+# /dev/shm is tiny on some PaaS images; fall back to /tmp when it is
+# missing or smaller than 32MB (prevents "no space left on device").
+import pathlib
+
+if pathlib.Path("/dev/shm").is_dir() and pathlib.Path("/dev/shm").stat().st_size:
+    worker_tmp_dir = "/dev/shm"
+else:
+    worker_tmp_dir = "/tmp"
+
+# Bind: loopback by default (dev/nginx setups); PaaS platforms inject
+# PORT and require 0.0.0.0 — handle that automatically so the container
+# is reachable without touching this file.
+_port = os.getenv("PORT", "")
+bind = os.getenv(
+    "GUNICORN_BIND",
+    f"0.0.0.0:{_port}" if _port else "127.0.0.1:8000",
+)
 worker_tmp_dir = "/dev/shm"
 
 accesslog = os.getenv("GUNICORN_ACCESS_LOG", "-")

@@ -36,10 +36,16 @@ class Retriever:
         normalize: bool = True,
         embedder: Optional[Embedder] = None,
     ):
-        data_dir = Path(__file__).resolve().parent.parent / "Data"
-        chunks_path = chunks_path or str(data_dir / "chunks.json")
-        metadata_path = metadata_path or str(data_dir / "metadata.json")
-        embeddings_path = embeddings_path or str(data_dir / "embeddings.npy")
+        # Keep in sync with settings.CORPUS_DATA_DIR (document_pipeline).
+        # PaaS volumes relocate the corpus via DATA_DIR/PERSIST_DIR; reading
+        # the env here keeps rag/ dependency-free from Django.
+        default_dir = os.environ.get(
+            "DATA_DIR",
+            str(Path(__file__).resolve().parent.parent / "Data"),
+        )
+        chunks_path = chunks_path or str(Path(default_dir) / "chunks.json")
+        metadata_path = metadata_path or str(Path(default_dir) / "metadata.json")
+        embeddings_path = embeddings_path or str(Path(default_dir) / "embeddings.npy")
 
         chunk_file = Path(chunks_path)
         metadata_file = Path(metadata_path)

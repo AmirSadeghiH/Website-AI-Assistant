@@ -1,21 +1,19 @@
-# ─── AI Support Platform — Production Dockerfile ──────────────────────────
-# Multi-stage build: small final image, no build tools in production.
+# ─── AI Support Platform — Production Dockerfile (single container) ──────
+# Everything runs in one container: web + background worker.
+# Railway sets $PORT; locally it defaults to 8000.
 #
-# Build:
-#   docker build -t ai-support-platform .
-#
-# Run:
-#   docker run -d --env-file .env -p 8000:8000 ai-support-platform
-#
-# Or use docker-compose (recommended):
-#   docker compose up -d
+# Build:  docker build -t ai-support-platform .
+# Run:    docker run -p 8000:8000 --env-file .env ai-support-platform
 # ──────────────────────────────────────────────────────────────────────────
 
 FROM python:3.12-slim AS base
 
 # Prevent Python from buffering stdout/stderr (critical for Docker logs)
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    USE_WHITENOISE=True \
+    SPAWN_WORKERS=auto \
+    CONTAINERIZED=1
 
 WORKDIR /app
 
@@ -33,22 +31,23 @@ RUN pip install --no-cache-dir -r requirements.txt
 # ─── Application code ───────────────────────────────────────────────────
 COPY . .
 
-# Collect static files
-RUN SECRET_KEY=build-placeholder DEBUG=True \
-    python manage.py collectstatic --noinput 2>/dev/null || true
+# collectstatic also runs inside ensure_deploy at start; a build-time pass
+# keeps the whitenoise manifest valid even if the start command changes.
+RUN SECRET_KEY=build-placeholder DEBUG=False python manage.py collectstatic \
+    --noinput --clear >/dev/null 2>&1 || true
 
-# Create non-root user
-RUN addgroup --system django && adduser --system --ingroup django django
-RUN mkdir -p /app/Data /app/media /app/staticfiles && \
-    chown -R django:django /app
+# Non-root user
+RUN addgroup --system django && adduser --system --ingroup django django \
+    && mkdir -p /app/Data /app/media /app/staticfiles \
+    && chown -R django:django /app \
+    && chmod +x /app/deploy/entrypoint.sh
 
 USER django
 
 EXPOSE 8000
 
-# Health check (lightweight, no auth needed)
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health/')"
+# Lightweight unauthenticated liveness endpoint (no widget key needed).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+    CMD python -c "import urllib.request,os; urllib.request.urlopen('http://127.0.0.1:%s/api/health/' % os.environ.get('PORT','8000'))"
 
-# Run with gunicorn
-CMD ["gunicorn", "config.wsgi:application", "-c", "gunicorn.conf.py"]
+ENTRYPOINT ["/app/deploy/entrypoint.sh"]

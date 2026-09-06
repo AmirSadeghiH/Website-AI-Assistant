@@ -39,6 +39,7 @@ user.save()
 
 # leftover cleanup
 Feedback.objects.filter(message__conversation__messages__content="سلام قیمت چنده؟").delete()
+Feedback.objects.filter(message__conversation__origin="panel_smoke").delete()
 Conversation.objects.filter(messages__content="سلام قیمت چنده؟").delete()
 Conversation.objects.filter(origin="panel_smoke").delete()
 UnansweredQuestion.objects.filter(question="ساعات کاری جمعه چیه؟").delete()
@@ -50,12 +51,12 @@ provider = ProviderSettings.objects.first() or ProviderSettings.objects.create()
 config = WidgetConfig.objects.first() or WidgetConfig.objects.create()
 
 conv = Conversation.objects.create(status="open", origin="panel_smoke")
-Message.objects.create(conversation=conv, role="user", content="سلام قیمت چنده؟", intent="pricing")
-Message.objects.create(
+user_msg = Message.objects.create(conversation=conv, role="user", content="سلام قیمت چنده؟", intent="pricing")
+assistant_msg = Message.objects.create(
     conversation=conv, role="assistant", content="قیمت‌ها در صفحه محصولات هست.",
     intent="pricing", latency_ms=420, sources=[{"title": "قیمت‌ها", "url": "https://ex.com/p"}],
 )
-Feedback.objects.create(message=Message.objects.filter(role="assistant").first(), helpful=True)
+Feedback.objects.create(message=assistant_msg, helpful=True)
 Lead.objects.create(name="مشتری تست", email="t@ex.com", source="widget_form", conversation=conv)
 HandoffRequest.objects.create(conversation=conv, channel="telegram", question="با کارشناس صحبت کنم", status="new")
 UnansweredQuestion.objects.create(question="ساعات کاری جمعه چیه؟", reason="no_context", count=3)

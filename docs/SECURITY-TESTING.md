@@ -2,7 +2,7 @@
 
 > آخرین به‌روزرسانی: ۲۰۲۶-۰۹-۰۵ · نسخه محصول: 1.0.0 · مبنای ممیزی: [prodcheck](https://github.com/FarzamHabibi/pre-production-checklist) (۴٬۳۵۲ آیتم؛ gate فیلترشده برای Django/any: ۳۲۵ آیتم در `BLOCKERS.md`)
 
-این سند دو چیز را پوشش می‌دهد: **(۱)** مدل امنیتی محصول و نتایج ممیزی بلاکرهای انتشار، **(۲)** نقشهٔ کامل مجموعه تست‌ها (۹۳ تست) و نتایج load test. مسیر کار ممیزی: `BLOCKERS.md` در ریشهٔ ریپو — هر آیتم باید یا با `file:line` تأیید شود یا UNKNOWN بماند؛ هیچ آیتمی خودجوش «تأییدشده» نمی‌شود.
+این سند دو چیز را پوشش می‌دهد: **(۱)** مدل امنیتی محصول و نتایج ممیزی بلاکرهای انتشار، **(۲)** نقشهٔ کامل مجموعه تست‌ها (۱۰۸ تست) و نتایج load test. مسیر کار ممیزی: `BLOCKERS.md` در ریشهٔ ریپو — هر آیتم باید یا با `file:line` تأیید شود یا UNKNOWN بماند؛ هیچ آیتمی خودجوش «تأییدشده» نمی‌شود.
 
 ---
 
@@ -47,7 +47,8 @@ Worker جدا: crawl (گارد SSRF) و document/embedding pipeline
 | throttle چندلایه | chat 30/min + کلید 1000/min + events 120/min + leads/handoff 10/min (`config/settings.py:248-253`) |
 | rate-limit لاگین ادمین | ۵ تلاش (`chat/middleware.py:49-56`) |
 | CORS صریح | `CORS_URLS_REGEX ^/api/`؛ `CORS_ALLOW_ALL_ORIGINS` پیش‌فرض False در غیر DEBUG (`config/settings.py:223-226,233`) |
-| امنیت کوکی/هدر در پروداکشن | `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, nosniff, referrer-policy (`config/settings.py:285-289`) |
+| امنیت کوکی/هدر در پروداکشن | `SESSION_COOKIE_SECURE`, `CSRF_COOKIE_SECURE`, nosniff, referrer-policy (`config/settings.py`) |
+| Healthcheck بدون کلید ویجت | `/api/health/` عمومی با payload بولینِ حداقلی (`chat/views.py` — `@permission_classes([])`)؛ در strict mode هم 200 می‌دهد تا healthcheck پلتفرم deploy را fail نکند |
 | گیرندهٔ اعلان‌ها ثابت | `mail_admins` + `chat_id` پنل (`chat/notify.py:27-57`) — visitor ایمیل‌فرست نیست |
 
 ---
@@ -75,12 +76,12 @@ Worker جدا: crawl (گارد SSRF) و document/embedding pipeline
 
 ---
 
-## ۴) مجموعه تست‌ها — ۹۲ تست سبز
+## ۴) مجموعه تست‌ها — ۱۰۸ تست سبز
 
 اجرای کامل:
 
 ```powershell
-.\.venv\Scripts\python.exe manage.py test        # 92 tests, OK
+.\.venv\Scripts\python.exe manage.py test        # 108 tests, OK
 python scripts/panel_smoke.py                     # smoke صفحات پنل
 ```
 
@@ -89,6 +90,7 @@ python scripts/panel_smoke.py                     # smoke صفحات پنل
 | `chat/tests.py` | ۵۲ مؤثر | endpointهای API، خطاهای 400/411/413/503، رمزنگاری کلیدها در DB، singleton کانفیگ، widget-key/origin (از env و پنل)، CORS + preflight، اعلان خطا، formهای provider، فرم سند، **ZIP bomb**، **XML entity expansion**، **sniff فایل**، retriever (dimension mismatch/corpus خالی)، worker صف، بازخورد، origin matcher (exact/wildcard/referer)، media 404، تحلیل‌های staff. *چهار کلاس تست که دوباره تعریف شده بودند (شادوینگ) در همین پاس تمیزکاری شدند.* |
 | `chat/tests_security.py` | ۳۷ | **HMAC توکن مکالمه** (history/feedback/lead/handoff: معتبر/جعلی/ناموجود)، honeypot سرنخ (پاسخ جعلی بدون ذخیره)، rate-limit سرنخ، کانال‌های handoff، قرارداد استریم SSE (meta/token/done، fallback، bind مکالمه)، **گارد SSRF** (loopback/private/scheme/userinfo)، تشخیص نیت + نرمال‌سازی، احراز پنل (anonymous redirect، staff dashboard) |
 | `chat/tests_secretscan.py` | ۳ | **گارد ضد نشت راز:** scan ریپو برای الگوهای `sk-…`/`ghp_…`/AWS/Google/key-block، ممنوعیت فایل کلید روی دیسک، الزام gitignore بودن `.env` و آرشیوها |
+| `chat/tests_deploy.py` | ۱۶ | **آمادگی استقرار:** پارس `DATABASE_URL` (postgres/sqlite/خطا)، endpoint سلامت بدون کلید ویجت در پروداکشن، هم‌راستایی مسیرهای corpus با `settings.CORPUS_DATA_DIR`، self-heal corpus (fresh/partial/mismatch/consistent — روی دایرکتوری temp ایزوله)، سیاست spawn ورکر (auto/explicit/کانتینر/دستگاه توسعه) |
 
 **نتایج load test** (`loadtest/LOADTEST.md`): ۲۰۰ کاربر هم‌زمان → `widget-config`/`health` با p50=۱۵ms، **صفر خطای 5xx**؛ چت واقعی p50≈۳.۲s که سقفش توسط API ارائه‌دهندهٔ LLM تعیین می‌شود نه Django.
 

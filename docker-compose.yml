@@ -2,23 +2,27 @@
 # One command to run everything:
 #   docker compose up -d --build
 #
-# First time setup:
-#   docker compose exec web python manage.py migrate
+# First time setup (superuser):
 #   docker compose exec web python manage.py createsuperuser
-#   docker compose exec web python manage.py collectstatic --noinput
+#
+# Or auto-create from env: set DJANGO_SUPERUSER_USERNAME / _EMAIL / _PASSWORD
+# in .env and the entrypoint creates it on first boot.
 #
 # Stop:
 #   docker compose down
 # ──────────────────────────────────────────────────────────────────────────
 
 services:
-  # ─── Django + Gunicorn ──────────────────────────────────────────────
+  # ─── Django + Gunicorn + background worker (single container) ───────
   web:
     build: .
     container_name: ai-support-web
     restart: unless-stopped
     env_file: .env
     environment:
+      - PORT=8000
+      - USE_WHITENOISE=True
+      - CONTAINERIZED=1
       - REDIS_URL=redis://redis:6379/0
       - DB_NAME=${DB_NAME:-ai_support}
       - DB_USER=${DB_USER:-ai_support}
@@ -32,37 +36,17 @@ services:
         condition: service_healthy
     volumes:
       - media_data:/app/media
-      - static_data:/app/staticfiles
       - corpus_data:/app/Data
     networks:
       - internal
     expose:
       - "8000"
-
-  # ─── Background worker: crawl jobs + document re-embedding ───────────
-  worker:
-    build: .
-    container_name: ai-support-worker
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - DB_NAME=${DB_NAME:-ai_support}
-      - DB_USER=${DB_USER:-ai_support}
-      - DB_PASSWORD=${DB_PASSWORD:-change-me-in-production}
-      - DB_HOST=db
-      - DB_PORT=5432
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-    volumes:
-      - media_data:/app/media
-      - corpus_data:/app/Data
-    networks:
-      - internal
-    command: ["python", "manage.py", "runworker", "--loop", "--interval", "5"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/')"]
+      interval: 30s
+      timeout: 5s
+      start_period: 60s
+      retries: 3
 
   # ─── PostgreSQL ─────────────────────────────────────────────────────
   db:
@@ -107,7 +91,6 @@ services:
       - "443:443"
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-      - static_data:/usr/share/nginx/static:ro
       - media_data:/usr/share/nginx/media:ro
       - certbot_data:/etc/letsencrypt:ro
     depends_on:
@@ -128,7 +111,6 @@ services:
 volumes:
   pg_data:
   media_data:
-  static_data:
   corpus_data:
   certbot_data:
 

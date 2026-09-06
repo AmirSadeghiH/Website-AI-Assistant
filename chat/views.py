@@ -236,9 +236,9 @@ def demo_page(request):
 
 
 CORPUS_ARTIFACTS = (
-    Path(settings.BASE_DIR) / "Data" / "chunks.json",
-    Path(settings.BASE_DIR) / "Data" / "metadata.json",
-    Path(settings.BASE_DIR) / "Data" / "embeddings.npy",
+    Path(settings.CORPUS_DATA_DIR) / "chunks.json",
+    Path(settings.CORPUS_DATA_DIR) / "metadata.json",
+    Path(settings.CORPUS_DATA_DIR) / "embeddings.npy",
 )
 
 
@@ -452,9 +452,16 @@ def _sse_event(event_name, data):
 
 @api_view(["GET"])
 @authentication_classes([])
-@permission_classes([WidgetAccessPermission])
+@permission_classes([])
 @throttle_classes([WidgetRateThrottle])
 def health(request):
+    """Unauthenticated liveness probe for PaaS healthchecks.
+
+    Returns only boolean service checks — no user data, no config values.
+    Platform healthchecks (Railway/Docker) must be able to call this without
+    a widget key, otherwise every deploy is marked unhealthy and restarted
+    in a loop.
+    """
     from django.db import connection
 
     checks = {"database": "ok", "corpus": "ok"}

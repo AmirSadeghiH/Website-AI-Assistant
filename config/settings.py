@@ -52,6 +52,26 @@ ALLOWED_HOSTS = [
     if h.strip()
 ]
 
+# PaaS convenience: Railway injects RAILWAY_PUBLIC_DOMAIN (and its private
+# networking domains). Adding them automatically removes the classic
+# "DisallowedHost at /" first-deploy failure without weakening security —
+# explicit ALLOWED_HOSTS entries still win and extra domains are append-only.
+_RAILWAY_DOMAINS = [
+    os.getenv(name, "").strip()
+    for name in (
+        "RAILWAY_PUBLIC_DOMAIN",
+        "RAILWAY_STATIC_URL",
+    )
+]
+_ALLOWED_EXTRA = [
+    d
+    for d in _RAILWAY_DOMAINS + [os.getenv("RAILWAY_PRIVATE_DOMAIN", "")]
+    if d
+]
+for _domain in _ALLOWED_EXTRA:
+    if _domain not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(_domain)
+
 
 # Application definition
 
@@ -120,7 +140,43 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/6.1/ref/settings/#databases
 
-if os.getenv("DB_NAME"):
+def _database_url_options(url):
+    """Parse DATABASE_URL (Railway-style) without extra dependencies.
+
+    Accepts postgres://, postgresql:// and sqlite:// schemes and returns a
+    Django DATABASES entry. Keeps deployment to one variable.
+    """
+    from urllib.parse import unquote, urlsplit
+
+    parts = urlsplit(url)
+    scheme = (parts.scheme or "").lower()
+    if scheme in ("sqlite",):
+        path = unquote(parts.path.lstrip("/")) or "db.sqlite3"
+        if not os.path.isabs(path):
+            path = str(BASE_DIR / path)
+        return {"ENGINE": "django.db.backends.sqlite3", "NAME": path}
+    if scheme in ("postgres", "postgresql"):
+        return {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": unquote(parts.path.lstrip("/")),
+            "USER": unquote(parts.username or ""),
+            "PASSWORD": unquote(parts.password or ""),
+            "HOST": parts.hostname or "",
+            "PORT": str(parts.port or "5432"),
+            "CONN_MAX_AGE": int(os.getenv("DB_CONN_MAX_AGE", "60")),
+            "OPTIONS": {"connect_timeout": 5},
+        }
+    raise ImproperlyConfigured(
+        f"Unsupported DATABASE_URL scheme: {scheme!r} (use postgres:// or sqlite://)"
+    )
+
+
+from django.core.exceptions import ImproperlyConfigured  # noqa: E402
+
+_DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if _DATABASE_URL:
+    DATABASES = {"default": _database_url_options(_DATABASE_URL)}
+elif os.getenv("DB_NAME"):
     DATABASES = {
         "default": {
             "ENGINE": "django.db.backends.postgresql",
@@ -162,10 +218,49 @@ USE_TZ = True
 STATIC_URL = 'static/'
 STATICFILES_DIRS = [BASE_DIR / 'static']
 STATIC_ROOT = BASE_DIR / 'staticfiles'
+# PaaS persistence: point media + RAG corpus at a mounted volume when
+# provided. DATA_DIR is the canonical override for the RAG corpus;
+# PERSIST_DIR sets both media and Data at once (one Railway volume).
+_PERSIST_DIR = os.getenv("PERSIST_DIR", "").strip()
+_DATA_DIR_ENV = os.getenv("DATA_DIR", "").strip()
+if _DATA_DIR_ENV:
+    _CORPUS_DATA_DIR = Path(_DATA_DIR_ENV)
+elif _PERSIST_DIR:
+    _CORPUS_DATA_DIR = Path(_PERSIST_DIR) / "Data"
+else:
+    _CORPUS_DATA_DIR = BASE_DIR / "Data"
+
+if _PERSIST_DIR:
+    MEDIA_ROOT = Path(_PERSIST_DIR) / "media"
+else:
+    MEDIA_ROOT = BASE_DIR / 'media'
+
+# Single source of truth for the RAG corpus location (chunks.json,
+# metadata.json, embeddings.npy). Everything reads this; nothing else
+# derives its own path.
+CORPUS_DATA_DIR = _CORPUS_DATA_DIR
+
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
 DATA_UPLOAD_MAX_MEMORY_SIZE = 2 * 1024 * 1024
 FILE_UPLOAD_MAX_MEMORY_SIZE = 25 * 1024 * 1024
+
+# ─── Static serving in PaaS / single-container mode ───────────────────────
+# Whitenoise serves STATIC_ROOT directly from Django so the widget JS, panel
+# CSS and demo page work with zero reverse-proxy configuration. Enabled via
+# USE_WHITENOISE=True (set in the container image); local dev stays untouched.
+# NOTE: non-manifest storage on purpose — hashed filenames would break the
+# customer install snippets that reference /static/widget/widget-<theme>.js.
+if os.getenv("USE_WHITENOISE", "").lower() in ("true", "1", "yes"):
+    MIDDLEWARE.insert(
+        MIDDLEWARE.index("django.middleware.security.SecurityMiddleware") + 1,
+        "whitenoise.middleware.WhiteNoiseMiddleware",
+    )
+    STORAGES = {
+        "default": {"BACKEND": "django.core.files.storage.FileSystemStorage"},
+        "staticfiles": {
+            "BACKEND": "whitenoise.storage.CompressedStaticFilesStorage",
+        },
+    }
 
 
 # ─── Cache — Redis in production, LocMem in dev ──────────────────────────
@@ -259,6 +354,16 @@ TRUST_X_FORWARDED_FOR = os.getenv(
     "TRUST_X_FORWARDED_FOR", "False",
 ).lower() in ("true", "1", "yes")
 
+# PaaS proxies (Railway included) terminate TLS and forward X-Forwarded-Proto.
+# Default ON when not DEBUG so HTTPS detection works without manual env setup;
+# explicit TRUST_PROXY_SSL still overrides both ways.
+if os.getenv("TRUST_PROXY_SSL") is None and not DEBUG:
+    TRUST_PROXY_SSL = True
+else:
+    TRUST_PROXY_SSL = os.getenv(
+        "TRUST_PROXY_SSL", "False",
+    ).lower() in ("true", "1", "yes")
+
 REST_FRAMEWORK = {
     "DEFAULT_RENDERER_CLASSES": (
         "rest_framework.renderers.JSONRenderer",
@@ -279,7 +384,7 @@ REST_FRAMEWORK = {
 
 SECURE_PROXY_SSL_HEADER = (
     ("HTTP_X_FORWARDED_PROTO", "https")
-    if os.getenv("TRUST_PROXY_SSL", "False").lower() in ("true", "1", "yes")
+    if TRUST_PROXY_SSL
     else None
 )
 SESSION_COOKIE_SECURE = not DEBUG
@@ -291,6 +396,18 @@ SECURE_SSL_REDIRECT = os.getenv("SECURE_SSL_REDIRECT", "False").lower() in (
     "true", "1", "yes",
 )
 SECURE_HSTS_SECONDS = int(os.getenv("SECURE_HSTS_SECONDS", "0"))
+
+# CSRF behind a proxy: Django 4+ requires the caller origin to be listed.
+# Railway domain (if any) is trusted automatically; extra origins via env.
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("CSRF_TRUSTED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+for _domain in _ALLOWED_EXTRA:
+    _origin = f"https://{_domain}"
+    if _origin not in CSRF_TRUSTED_ORIGINS:
+        CSRF_TRUSTED_ORIGINS.append(_origin)
 
 
 # Email

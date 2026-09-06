@@ -18,9 +18,11 @@ from django.utils import timezone
 
 from .models import Document
 
-CHUNKS_PATH = Path(settings.BASE_DIR) / "Data" / "chunks.json"
-METADATA_PATH = Path(settings.BASE_DIR) / "Data" / "metadata.json"
-EMBEDDINGS_PATH = Path(settings.BASE_DIR) / "Data" / "embeddings.npy"
+# Corpus directory: settings.CORPUS_DATA_DIR is the single source of truth
+# (defaults to <BASE_DIR>/Data; PaaS volumes override via PERSIST_DIR).
+CHUNKS_PATH = settings.CORPUS_DATA_DIR / "chunks.json"
+METADATA_PATH = settings.CORPUS_DATA_DIR / "metadata.json"
+EMBEDDINGS_PATH = settings.CORPUS_DATA_DIR / "embeddings.npy"
 
 
 SUPPORTED_TYPES = {
@@ -38,8 +40,7 @@ MAX_DOCX_SINGLE_PART = 32 * 1024 * 1024
 
 @contextmanager
 def corpus_lock(timeout=30):
-    data_dir = Path(settings.BASE_DIR) / "Data"
-    lock = FileLock(str(data_dir / ".corpus.lock"), timeout=timeout)
+    lock = FileLock(str(settings.CORPUS_DATA_DIR / ".corpus.lock"), timeout=timeout)
     try:
         with lock:
             yield
@@ -135,7 +136,7 @@ def extract_document(path, file_type):
 
 
 def _read_artifacts():
-    data_dir = Path(settings.BASE_DIR) / "Data"
+    data_dir = settings.CORPUS_DATA_DIR
     chunks_path = data_dir / "chunks.json"
     metadata_path = data_dir / "metadata.json"
     embeddings_path = data_dir / "embeddings.npy"
@@ -331,6 +332,25 @@ def process_document(document_id):
         raise
 
 
+def should_spawn_inline_worker() -> bool:
+    """Decide whether enqueue functions may spawn detached subprocesses.
+
+    SPAWN_WORKERS=auto (default): spawn on a dev machine, skip inside
+    managed containers (Railway/Docker) where the ``runworker --loop``
+    process handles queued work — avoids memory spikes on small plans.
+    Explicit values always win: SPAWN_WORKERS=1/true forces spawning,
+    SPAWN_WORKERS=0/false forces skipping.
+    """
+    mode = os.getenv("SPAWN_WORKERS", "auto").strip().lower()
+    if mode in ("0", "false", "no", "off"):
+        return False
+    if mode in ("1", "true", "yes", "on"):
+        return True
+    return not (
+        os.getenv("RAILWAY_ENVIRONMENT") or os.getenv("CONTAINERIZED")
+    )
+
+
 def enqueue_documents(document_ids):
     documents = Document.objects.filter(pk__in=document_ids)
     # Don't spin a worker if the doc is already being processed — but
@@ -348,6 +368,10 @@ def enqueue_documents(document_ids):
     if not ids:
         return 0
     Document.objects.filter(pk__in=ids).update(status="queued", error_message="", updated_at=timezone.now())
+
+    if not should_spawn_inline_worker():
+        # Container mode: the runworker --loop process picks these up.
+        return len(ids)
 
     command = [
         sys.executable,

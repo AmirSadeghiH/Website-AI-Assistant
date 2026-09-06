@@ -25,7 +25,7 @@
 4. [نصب آسان ویجت روی سایت مشتری](#نصب-آسان-ویجت-روی-سایت-مشتری)
 5. [راهنمای پنل ادمین](#راهنمای-پنل-ادمین)
 6. [مرجع API](#مرجع-api)
-7. [استقرار Production](#استقرار-production)
+7. [استقرار Production](#استقرار-production) — 🚀 [راهنمای Railway ۱۰ دقیقه‌ای](docs/RAILWAY-DEPLOY.md)
 8. [مدل امنیتی](#مدل-امنیتی)
 9. [عملکرد و مقیاس‌پذیری (۲۰۰+ کاربر هم‌زمان)](#عملکرد-و-مقیاسپذیری)
 10. [متغیرهای محیطی](#متغیرهای-محیطی)
@@ -332,26 +332,32 @@ event: error  data: {"code": "capacity_limited", "message": "…"}   (فقط د�
 
 ## استقرار Production
 
-### گزینه‌ی الف) Docker Compose روی VPS (توصیه‌شده)
+> 🚀 **ساده‌ترین راه: Railway در ۱۰ دقیقه** — راهنمای قدم‌به‌قدم کامل:
+> [`docs/RAILWAY-DEPLOY.md`](docs/RAILWAY-DEPLOY.md)
+> یک سرویس، بدون nginx، بدون کانفیگ TLS؛ فقط `SECRET_KEY` بگذار و Volume وصل کن.
+
+### گزینه‌ی الف) Railway / PaaS (تک‌کانتینر — توصیه‌شده)
+
+1. ریپو را به Railway وصل کنید — تمام؛ `railway.json` + `Dockerfile` +
+   `deploy/entrypoint.sh` بقیه‌ی کار را می‌کنند: بیلد، migrate،
+   collectstatic، تعمیر corpus، اجرای ورکر پس‌زمینه و gunicorn روی `$PORT`.
+2. از Railway دیتابیس **PostgreSQL** و **Redis** اضافه کنید (متغیرهای
+   `DATABASE_URL` و `REDIS_URL` خودکار تزریق می‌شوند — کانفیگ دستی لازم نیست).
+3. یک **Volume** با مسیر `/data` به سرویس وصل کنید و `PERSIST_DIR=/data`
+   بگذارید تا دانش و فایل‌ها با هر deploy باقی بمانند.
+4. فقط `SECRET_KEY` را دستی وارد کنید؛ دامنه‌ی Railway، HTTPS و CSRF
+   خودکار شناسایی می‌شوند.
+5. سلامت: `/api/health/` (بدون کلید ویجت، خروجی بولین).
+
+### گزینه‌ی ب) Docker Compose روی VPS
 
 ```bash
 # ۱) .env را بسازید (بر اساس .env.example)
 # ۲) دامنه در nginx.conf را عوض کنید
 docker compose up -d --build
 docker compose exec web python manage.py createsuperuser
-# سرویس‌ها: web (gunicorn) + worker (runworker) + postgres + redis + nginx + certbot
+# سرویس‌ها: web (gunicorn + ورکر داخلی) + postgres + redis + nginx + certbot
 ```
-
-### گزینه‌ی ب) Railway
-
-1. ریپو را به Railway وصل کنید — `railway.json` را می‌خواند
-   (Dockerfile build + preDeploy migrate/collectstatic + healthcheck `/api/health/`).
-2. متغیرهای `.env` را در تنظیمات Railway وارد کنید (Redis و Postgres از
-   marketplace Railway).
-3. برای worker (پردازش اسناد/کرال) یک سرویس دوم از همین ریپو بسازید با
-   Start Command دستی:
-   `python manage.py runworker --loop --interval 5`
-4. Railway ترافیک HTTP را خودش TLS می‌کند؛ `TRUST_PROXY_SSL=True` بگذارید.
 
 ### دستی (VPS بدون Docker)
 
@@ -549,13 +555,15 @@ HTTPS و گذرواژه‌ی قوی در دسترس باشد.
 .\.venv\Scripts\python.exe manage.py test
 ```
 
-**۹۲ تست** شامل: endpointهای API، استریم SSE (قرارداد meta/token/done)،
+**۱۰۸ تست** شامل: endpointهای API، استریم SSE (قرارداد meta/token/done)،
 تاریخچه و بازخورد با توکن HMAC، سرنخ‌ها (honeypot + throttle + اتصال
 مکالمه)، ارجاع انسانی، گارد SSRF کرالر، تشخیص نیت، احراز هویت کلید/origin
 (از env و پنل)، CORS و preflight، محدودیت حجم بدنه و chunked، رمزنگاری
 کلیدها، ZIP bomb / XML bomb، sniff فایل، corpus خالی، احراز هویت پنل
 `/panel/` و پنل ادمین — به‌علاوه **گارد secret-scan** که وجود راز/کلید در
-سورس را به‌عنوان خطای تست گزارش می‌کند.
+سورس را به‌عنوان خطای تست گزارش می‌کند، و **تست‌های آمادگی استقرار**
+(`tests_deploy.py`): پارس `DATABASE_URL`، سلامت endpoint بدون کلید در حالت
+پروداکشن، self-heal Corpus و سیاست spawn ورکر در کانتینر.
 
 Smoke test صفحات پنل (خارج از test runner):
 
@@ -598,5 +606,5 @@ Load test: `loadtest/locustfile.py` (locust) یا `loadtest/run_load_test.py`
 | همه کاربران یکجا 429 می‌گیرند | پشت proxy هستید؛ `TRUST_X_FORWARDED_FOR=True` + بازنویسی هدر در nginx |
 | `RAG_MAX_CONCURRENT` را عوض کردم ولی اثر نکرد | سقف semaphore هنگام اولین استفاده ساخته می‌شود؛ workerها را ری‌استارت کنید |
 | آپلود سند با خطای «محتوای فایل با پسوند آن هم‌خوانی ندارد» | فایل واقعاً PDF/TXT/DOCX است؟ پسوند و محتوا باید یکی باشند |
-| اسناد/کرال پردازش نمی‌شوند | `runworker --loop` در حال اجراست؟ (در docker compose سرویس `worker` خودکار بالا می‌آید) |
+| اسناد/کرال پردازش نمی‌شوند | در استقرار تک‌کانتینری ورکر داخلی هر ۵ ثانیه صف را چک می‌کند؛ روی VPS `runworker --loop` را جدا اجرا کنید |
 | پاسخ‌ها خیلی کندند | `LLM_MAX_RETRIES` را ۰ نگه دارید، کش پاسخ را بالا ببرید، و `RAG_MAX_CONCURRENT` را بررسی کنید |
