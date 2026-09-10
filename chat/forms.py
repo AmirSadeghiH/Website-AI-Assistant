@@ -193,19 +193,33 @@ class AIProviderForm(forms.ModelForm):
         widgets = {
             "llm_api_key": forms.PasswordInput(
                 attrs={"dir": "ltr", "autocomplete": "new-password"},
-                render_value=True,
+                render_value=False,
             ),
             "embedding_api_key": forms.PasswordInput(
                 attrs={"dir": "ltr", "autocomplete": "new-password"},
-                render_value=True,
+                render_value=False,
             ),
             "telegram_bot_token": forms.PasswordInput(
                 attrs={"dir": "ltr", "autocomplete": "new-password"},
-                render_value=True,
+                render_value=False,
             ),
             "llm_base_url": forms.TextInput(attrs={"dir": "ltr"}),
             "embedding_base_url": forms.TextInput(attrs={"dir": "ltr"}),
         }
+
+    def save(self, commit=True):  # keep existing secret when field left blank
+        instance = super().save(commit=False)
+        for field in ("llm_api_key", "embedding_api_key", "telegram_bot_token"):
+            if not self.cleaned_data.get(field):
+                current = (
+                    getattr(self.instance, field)
+                    if self.instance and self.instance.pk
+                    else ""
+                )
+                setattr(instance, field, current)
+        if commit:
+            instance.save()
+        return instance
 
 
 class CrawlStartForm(forms.ModelForm):

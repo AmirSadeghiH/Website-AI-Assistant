@@ -198,8 +198,9 @@
       if (!form || !frame) return;
 
       // Live preview: push form changes into the widget iframe as JSON
+      {{ preview_payload|json_script:"panel-preview-payload" }}
       var baseCfg;
-      try { baseCfg = {{ preview_payload|safe }}; } catch (e) { baseCfg = {}; }
+      try { baseCfg = JSON.parse(document.getElementById("panel-preview-payload").textContent); } catch (e) { baseCfg = {}; }
 
       function toCamel(s) { return s.replace(/_([a-z])/g, function (m, c) { return c.toUpperCase(); }); }
 

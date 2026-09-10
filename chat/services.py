@@ -236,6 +236,21 @@ class RAGService:
         history-free questions.
         """
         question = str(question).strip()[:2000]
+
+        # Layer 1 active refusal: visitor question is a jailbreak / extraction attempt
+        try:
+            from rag.injection_guard import REFUSAL_MESSAGE, is_injection_attempt
+            if is_injection_attempt(question):
+                return {
+                    "answer": REFUSAL_MESSAGE,
+                    "sources": [],
+                    "used_fallback": False,
+                    "reason": "injection_refused",
+                    "confidence": 0.0,
+                }
+        except Exception:
+            pass
+
         key = self._cacheable_key(question, history)
         if key and self.cache_seconds:
             cached = cache.get(key)
@@ -243,6 +258,16 @@ class RAGService:
                 return cached
 
         result = self._run_agent(question, history)
+
+        # Layer 3 output guard
+        try:
+            from rag.injection_guard import redact_secrets, strip_prompt_echo
+
+            answer, _ = redact_secrets(result.get("answer", ""))
+            answer, _ = strip_prompt_echo(answer, [self.llm.system_prompt, self.agent.user_prompt])
+            result["answer"] = answer
+        except Exception:
+            pass
 
         if key and self.cache_seconds:
             cache.set(key, result, timeout=self.cache_seconds)
@@ -257,6 +282,24 @@ class RAGService:
         can persist a complete message.
         """
         question = str(question).strip()[:2000]
+
+        # Active refusal for injection-shaped visitor questions
+        try:
+            from rag.injection_guard import REFUSAL_MESSAGE, is_injection_attempt
+            if is_injection_attempt(question):
+                refuse = {
+                    "answer": REFUSAL_MESSAGE,
+                    "sources": [],
+                    "used_fallback": False,
+                    "reason": "injection_refused",
+                    "confidence": 0.0,
+                }
+                yield {"type": "token", "text": REFUSAL_MESSAGE}
+                yield {"type": "done", "result": refuse, "cached": False}
+                return
+        except Exception:
+            pass
+
         key = self._cacheable_key(question, history)
         if key and self.cache_seconds:
             cached = cache.get(key)
@@ -287,6 +330,12 @@ class RAGService:
             collected = []
             try:
                 for chunk in self.llm.stream_generate(prompt):
+                    # Layer 3 redaction per-delta (defence in depth; echo strip on final answer)
+                    try:
+                        from rag.injection_guard import redact_secrets
+                        chunk, _ = redact_secrets(chunk)
+                    except Exception:
+                        pass
                     collected.append(chunk)
                     yield {"type": "token", "text": chunk}
             except Exception as exc:
@@ -307,6 +356,16 @@ class RAGService:
             answer = "".join(collected).strip()
             if not answer:
                 raise RuntimeError("LLM returned an empty response.")
+
+            # Layer 3 output guard on the assembled answer (stream)
+            try:
+                from rag.injection_guard import redact_secrets, strip_prompt_echo
+
+                answer, _ = redact_secrets(answer)
+                answer, _ = strip_prompt_echo(answer, [self.llm.system_prompt, self.agent.user_prompt])
+            except Exception:
+                pass
+
             used_fallback = self.agent._is_fallback_text(answer)
             result = {
                 "answer": answer,
