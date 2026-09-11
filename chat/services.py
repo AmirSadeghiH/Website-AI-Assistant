@@ -234,22 +234,12 @@ class RAGService:
         Returns a dict: {answer, sources, used_fallback, reason, confidence}.
         The response cache (Redis-backed in production) only serves
         history-free questions.
+
+        Note: visitor-side guard (refusal + auto-block) lives in views.py so
+        it can persist the block counter per-conversation. The redundant guard
+        here was removed to avoid double-counting.
         """
         question = str(question).strip()[:2000]
-
-        # Layer 1 active refusal: visitor question is a jailbreak / extraction attempt
-        try:
-            from rag.injection_guard import REFUSAL_MESSAGE, is_injection_attempt
-            if is_injection_attempt(question):
-                return {
-                    "answer": REFUSAL_MESSAGE,
-                    "sources": [],
-                    "used_fallback": False,
-                    "reason": "injection_refused",
-                    "confidence": 0.0,
-                }
-        except Exception:
-            pass
 
         key = self._cacheable_key(question, history)
         if key and self.cache_seconds:
@@ -280,25 +270,10 @@ class RAGService:
         call streams token groups. The final ``done`` event carries the
         structured metadata (sources, fallback, confidence) so the caller
         can persist a complete message.
+
+        Note: visitor-side guard lives in views.py (stream path as well).
         """
         question = str(question).strip()[:2000]
-
-        # Active refusal for injection-shaped visitor questions
-        try:
-            from rag.injection_guard import REFUSAL_MESSAGE, is_injection_attempt
-            if is_injection_attempt(question):
-                refuse = {
-                    "answer": REFUSAL_MESSAGE,
-                    "sources": [],
-                    "used_fallback": False,
-                    "reason": "injection_refused",
-                    "confidence": 0.0,
-                }
-                yield {"type": "token", "text": REFUSAL_MESSAGE}
-                yield {"type": "done", "result": refuse, "cached": False}
-                return
-        except Exception:
-            pass
 
         key = self._cacheable_key(question, history)
         if key and self.cache_seconds:

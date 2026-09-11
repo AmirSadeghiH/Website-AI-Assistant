@@ -1,0 +1,94 @@
+{% extends "panel/base.html" %}
+{% block title %}محافظ محتوا{% endblock %}
+{% block page_title %}محافظ محتوا{% endblock %}
+{% block page_sub %}سه سطح حساسیت · آستانهٔ مسدودسازی · پیام مسدودشده · فهرست گفت‌وگوهای بلاک‌شده{% endblock %}
+{% block content %}
+<style>
+  .guard-grid{display:grid;grid-template-columns:1fr 360px;gap:16px}
+  @media(max-width:900px){.guard-grid{grid-template-columns:1fr}}
+  .level-card{border:1px solid var(--line);border-radius:12px;padding:14px;background:#fff}
+  .level-card.active{border-color:var(--accent);box-shadow:0 6px 20px rgba(80,72,229,.12)}
+  .pill{font-size:11px;padding:3px 8px;border-radius:999px;background:#eef0ff;color:#5048E5;font-weight:800;border:1px solid #d9dcf3}
+  .pill.off{background:#f1f1f3;color:#6b7280;border-color:#e5e7eb}
+  .pill.vet{background:#fef3c7;color:#92400e;border-color:#fde68a}
+  .blocked-list .row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-bottom:8px}
+</style>
+
+<form method="post" class="guard-grid">
+  {% csrf_token %}
+  <div>
+    <div class="card card-pad">
+      <h3 class="card-title">سطح حساسیت نگهبان</h3>
+      <p class="small muted">خاموش = بدون بررسی. ساده = فقط تزریق‌های واضح (کمترین مثبت کاذب). کارکشته = پوشش گسترده‌تر + فیلتر چانک‌های حاوی راز.</p>
+      <div class="mt" style="display:grid;gap:10px">
+        <label class="level-card {% if row.level == 'off' %}active{% endif %}">
+          <div style="display:flex;align-items:center;gap:10px"><input type="radio" name="level" value="off" {% if row.level == 'off' %}checked{% endif %}> <strong>خاموش</strong> <span class="pill off">off</span></div>
+          <div class="small muted mt">هیچ پیامی رد یا بلاک نمی‌شود؛ فقط خروجی همچنان رازها را حذف می‌کند.</div>
+        </label>
+        <label class="level-card {% if row.level == 'simple' %}active{% endif %}">
+          <div style="display:flex;align-items:center;gap:10px"><input type="radio" name="level" value="simple" {% if row.level == 'simple' %}checked{% endif %}> <strong>نگهبان ساده</strong> <span class="pill">simple</span></div>
+          <div class="small muted mt">پیشنهادی برای اکثر سایت‌ها: فقط الگوهای پرسیگنال؛ سوال‌های عادی هرگز رد نمی‌شود.</div>
+        </label>
+        <label class="level-card {% if row.level == 'veteran' %}active{% endif %}">
+          <div style="display:flex;align-items:center;gap:10px"><input type="radio" name="level" value="veteran" {% if row.level == 'veteran' %}checked{% endif %}> <strong>نگهبان کارکشته</strong> <span class="pill vet">veteran</span></div>
+          <div class="small muted mt">سخت‌گیر: عبارات حاشیه‌ای، DAN تنها، و چانک‌های حاوی راز هم حذف می‌شود.</div>
+        </label>
+      </div>
+      {% for e in form.level.errors %}<div class="small text-danger mt">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="card card-pad mt">
+      <h3 class="card-title">مسدودسازی هوشمند</h3>
+      <div class="form-grid mt">
+        <div class="field">
+          <label for="{{ form.block_threshold.id_for_label }}">{{ form.block_threshold.label }}</label>
+          {{ form.block_threshold }}
+          {% if form.block_threshold.help_text %}<div class="helptext">{{ form.block_threshold.help_text }}</div>{% endif %}
+          {% for e in form.block_threshold.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+        </div>
+        <div class="field full">
+          <label for="{{ form.block_message.id_for_label }}">{{ form.block_message.label }}</label>
+          {{ form.block_message }}
+          <div class="helptext">به‌عنوان <em>آخرین پیام دستیار</em> برای کاربر بلاک‌شده ارسال می‌شود و باکس پیام برای او بسته خواهد شد.</div>
+          {% for e in form.block_message.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+        </div>
+      </div>
+      <div class="small muted mt">نحوهٔ کار: شمارش سوءاستفاده <strong>به‌ازای هر گفت‌وگو</strong> است — یک تبِ مهاجم بقیهٔ تب‌ها را آلوده نمی‌کند. با رسیدن به آستانه، همان گفت‌وگو بلاک شده و پیام بالا به‌عنوان آخرین پاسخ ذخیره می‌شود.</div>
+    </div>
+    <button class="btn btn-primary mt" type="submit">ذخیره تنظیمات نگهبان</button>
+  </div>
+  <div>
+    <div class="card card-pad">
+      <h3 class="card-title">وضعیت فعلی</h3>
+      <div class="mt small">سطح: <strong>{{ row.get_level_display }}</strong> · آستانه: <strong>{{ row.block_threshold }}</strong></div>
+      <div class="small muted mt" style="white-space:pre-wrap;word-break:break-word">پیام بلاک: {{ row.block_message }}</div>
+      <div class="small muted mt">گفت‌وگوهای بلاک‌شده: <strong>{{ blocked_count }}</strong></div>
+      <a class="btn mt" href="{% url 'panel:conversations' %}">رفتن به مکالمات</a>
+    </div>
+  </div>
+</form>
+
+{% if blocked_count %}
+<div class="card card-pad mt">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+    <div>
+      <h3 class="card-title">گفت‌وگوهای بلاک‌شده — رفع انسداد</h3>
+      <p class="small muted">برای آزمون یا رفع اشتباه، هر ردیف را جداگانه یا همه را یک‌جا آنبلاک کنید (شمارنده هم صفر می‌شود).</p>
+    </div>
+    <form method="post" action="{% url 'panel:guard-unblock-all' %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{% url 'panel:guard-settings' %}">
+      <button class="btn" type="submit" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">رفع انسداد همه ({{ blocked_count }})</button>
+    </form>
+  </div>
+  <div class="blocked-list mt" id="blocked-list" data-url="{% url 'panel:guard-settings' %}">در حال بارگذاری…</div>
+</div>
+<script>
+(function(){
+  var host=document.getElementById('blocked-list');
+  if(!host) return;
+  fetch('{% url "panel:conversations" %}?blocked=1', {headers:{'X-Requested-With':'fetch'}}).catch(function(){});
+  host.innerHTML='<div class="small muted">برای دیدن فهرست کامل و دکمهٔ «رفع انسداد»، <a href="{% url "panel:conversations" %}?blocked=1">به مکالماتِ بلاک‌شده بروید</a>. یا از دکمهٔ «رفع انسداد همه» بالا استفاده کنید.</div>';
+})();
+</script>
+{% endif %}
+{% endblock %}

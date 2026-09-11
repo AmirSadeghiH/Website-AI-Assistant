@@ -1,0 +1,103 @@
+{% extends "panel/base.html" %}
+{% block title %}اتاق فرمان{% endblock %}
+{% block page_title %}اتاق فرمان{% endblock %}
+{% block page_sub %}مدیریت پلن، ادمین‌ها و تنظیمات پایه — فقط سوپریوزر{% endblock %}
+{% block content %}
+
+<style>
+  .plan-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:18px}
+  @media(max-width:900px){.plan-cards{grid-template-columns:1fr}}
+  .plan-card{border:2px solid var(--line);border-radius:14px;padding:18px;background:#fff;display:flex;flex-direction:column;gap:10px;transition:border-color .2s}
+  .plan-card.active{border-color:var(--primary);box-shadow:0 6px 20px rgba(79,70,229,.12)}
+  .plan-card .label{font-size:15px;font-weight:800;color:var(--text)}
+  .plan-card .limit{font-size:12px;color:var(--text-2)}
+  .plan-card .limit strong{color:var(--primary)}
+  .plan-card .dur{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .plan-card .dur label{display:inline-flex;align-items:center;gap:4px;font-size:12px;padding:5px 12px;border:1px solid var(--line);border-radius:9px;cursor:pointer;background:#fafbfe;transition:all .15s}
+  .plan-card .dur label:has(input:checked){border-color:var(--primary);background:var(--primary-soft);color:var(--primary);font-weight:700}
+  .plan-card .dur input[type=radio]{accent-color:var(--primary);margin:0}
+  .plan-card button{margin-top:auto;font-weight:800}
+  .status-bar{display:grid;grid-template-columns:1fr 380px;gap:16px;margin-bottom:18px}
+  @media(max-width:900px){.status-bar{grid-template-columns:1fr}}
+  .quota-bar{height:8px;border-radius:6px;background:var(--line);overflow:hidden;margin:6px 0}
+  .quota-bar .fill{height:100%;border-radius:6px;transition:width .3s}
+  .badge-ok{background:var(--ok-soft);color:var(--ok)}.badge-warn{background:var(--warn-soft);color:var(--warn)}.badge-danger{background:var(--danger-soft);color:var(--danger)}
+  .badge-gray{background:#eef0f6;color:var(--text-2)}
+</style>
+
+{# ── Status cards ──────────────────────────────────────────────────── #}
+<div class="status-bar">
+  <div class="card card-pad">
+    <h3 class="card-title">وضعیت فعلی</h3>
+    {% if sp.expires_at %}
+      {% if sp.suspended or not sp.is_active %}
+        <span class="badge-pill badge-danger">منقضی</span>
+      {% elif sp.days_remaining <= 7 %}
+        <span class="badge-pill badge-warn">{{ sp.days_remaining }} روز مانده</span>
+      {% else %}
+        <span class="badge-pill badge-ok">فعال</span>
+      {% endif %}
+      <span class="badge-pill badge-gray" style="margin-right:6px">{{ sp.get_plan_display }} {{ sp.period_months }} ماهه</span>
+    {% else %}
+      <span class="badge-pill badge-gray">پلن فعال نیست</span>
+    {% endif %}
+    {% if sp.expires_at %}
+      <div class="small muted mt" dir="ltr">انقضا: {{ sp.expires_at|date:"Y-m-d H:i" }}{% if sp.period_start %} · شروع: {{ sp.period_start|date:"Y-m-d" }}{% endif %}</div>
+    {% endif %}
+    <div class="mt">
+      <div class="small muted">مصرف این ماه: <strong>{{ usage.used|default:0 }}</strong> از <strong>{{ usage.limit|default:0 }}</strong> پیام</div>
+      <div class="quota-bar"><div class="fill" style="width:{{ usage.pct|default:0 }}%;background:{% if usage.exceeded %}var(--danger){% elif usage.pct > 80 %}var(--warn){% else %}var(--ok){% endif %}"></div></div>
+      {% if usage.exceeded %}<div class="small text-danger mt">سهمیهٔ این ماه تمام شده — پیام جدیدی ثبت می‌شود ولی ویجت قفل نیست (مگر دستی ببندید).{% if usage.cycle_end %} دوره بعد: {{ usage.cycle_end|date:"Y-m-d" }}{% endif %}</div>{% endif %}
+    </div>
+    <form method="post" action="{% url 'panel:plan-quota-toggle' %}" class="mt" style="display:flex;gap:8px;align-items:center">
+      {% csrf_token %}
+      <button class="btn btn-sm" type="submit" style="{% if sp.quota_locked %}background:#e6f6f0;color:#059669;border-color:#cdeee0{% else %}background:#fdeaea;color:#dc2626;border-color:#fecaca{% endif %}">
+        {% if sp.quota_locked %}🔓 باز کردن چت{% else %}🔒 بستن چت تا دورهٔ بعد{% endif %}
+      </button>
+      <span class="small muted">{% if sp.quota_locked %}چت بسته است — ویجت پیام «بسته» می‌دهد{% else %}چت باز است{% endif %}</span>
+    </form>
+  </div>
+  <div class="card card-pad">
+    <h3 class="card-title">ادمین‌ها</h3>
+    <div class="small muted">{{ staff_qs|length }} حساب · فقط سوپریوزر می‌تواند بسازد/حذف کند</div>
+    <div class="mt" style="display:flex;flex-direction:column;gap:5px;max-height:120px;overflow:auto">
+      {% for u in staff_qs|slice:":6" %}
+        <div style="display:flex;justify-content:space-between;font-size:12px;border:1px solid var(--line);border-radius:8px;padding:5px 8px">
+          <span>{% if u.is_superuser %}👑{% endif %} {{ u.username }}{% if not u.is_active %} <span class="small text-danger">(غیرفعال)</span>{% endif %}</span>
+          <span class="small muted">{{ u.email|default:"—" }}</span>
+        </div>
+      {% empty %}<div class="small muted">ادمینی ساخته نشده</div>{% endfor %}
+    </div>
+    <a class="btn btn-sm mt" href="{% url 'panel:staff-list' %}">مدیریت ادمین‌ها</a>
+    <a class="btn btn-sm mt" href="{% url 'panel:site-profile' %}">ویرایش نوع کسب‌وکار</a>
+  </div>
+</div>
+
+{# ── Plan cards ────────────────────────────────────────────────────── #}
+<div class="card card-pad" style="margin-bottom:18px">
+  <h3 class="card-title">انتخاب یا تمدید پلن</h3>
+  <p class="small muted">هر پلن ماهانه یک سقف پیام دارد. انتخاب و فعال‌سازی از این‌جا انجام می‌شود؛ اگر پلن منقضی شده باشد، با فعال‌سازی دسترسی ویجت و پنل فوراً بازمی‌گردد و کلید نصب جدید صادر می‌شود.</p>
+</div>
+<div class="plan-cards">
+  {% for card in plan_cards %}
+  <form method="post" action="{% url 'panel:plan-activate' %}">
+    {% csrf_token %}
+    <input type="hidden" name="plan" value="{{ card.key }}">
+    <div class="plan-card {% if sp.plan == card.key %}active{% endif %}">
+      <div class="label">{{ card.label }}</div>
+      <div class="limit">سقف ماهانه: <strong>{{ card.limit|floatformat:0 }}</strong> پیام</div>
+      {% if sp.plan == card.key and sp.is_active and not sp.suspended %}
+        <span class="badge-pill badge-ok">پلن فعال</span>
+      {% endif %}
+      <div class="dur">
+        {% for months_val, months_label in durations %}
+          <label><input type="radio" name="months" value="{{ months_val }}" {% if forloop.first %}checked{% endif %}>{{ months_label }}</label>
+        {% endfor %}
+      </div>
+      <button class="btn btn-sm" type="submit">{% if sp.plan == card.key and sp.is_active %}تمدید{% else %}فعال‌سازی{% endif %}</button>
+    </div>
+  </form>
+  {% endfor %}
+</div>
+
+{% endblock %}

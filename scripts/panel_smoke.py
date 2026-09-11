@@ -77,6 +77,8 @@ paths = [
     "/panel/installation/",
     "/panel/wizard/",
     "/panel/ai-settings/",
+    "/panel/business-rules/",
+    "/panel/guard-settings/",
     "/panel/health-summary/",
 ]
 

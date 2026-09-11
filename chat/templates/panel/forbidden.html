@@ -1,0 +1,11 @@
+{% extends "panel/base.html" %}
+{% block title %}عدم دسترسی{% endblock %}
+{% block page_title %}عدم دسترسی{% endblock %}
+{% block page_sub %}شما اجازهٔ مشاهدهٔ «{{ label }}» را ندارید — با مالک سیستم تماس بگیرید.{% endblock %}
+{% block content %}
+<div class="card card-pad">
+  <h3 class="card-title">۴۰۳ — دسترسی محدود</h3>
+  <p class="small muted">این بخش از «{{ label }}» در اتاق فرمان برای حساب شما فعال نشده است.</p>
+  <a class="btn mt" href="{% url 'panel:dashboard' %}">بازگشت به داشبورد</a>
+</div>
+{% endblock %}

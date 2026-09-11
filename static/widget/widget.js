@@ -1102,6 +1102,12 @@
       try {
         this.conversationId = sessionStorage.getItem("asw_conversation_id") || "";
         this.conversationToken = sessionStorage.getItem("asw_conversation_token") || "";
+        this._blocked = sessionStorage.getItem("asw_blocked") === "1";
+        if (this._blocked) {
+          // Defer UI until shell exists; also set flag so sendText refuses early.
+          var self = this;
+          setTimeout(function () { self._setBlocked(true); }, 0);
+        }
       } catch (_) {}
     }
 
@@ -1110,6 +1116,10 @@
         if (this.conversationId) sessionStorage.setItem("asw_conversation_id", this.conversationId);
         if (this.conversationToken) sessionStorage.setItem("asw_conversation_token", this.conversationToken);
       } catch (_) {}
+    }
+
+    _persistBlocked() {
+      try { sessionStorage.setItem("asw_blocked", "1"); } catch (_) {}
     }
 
     async restoreHistory() {
@@ -1122,6 +1132,11 @@
         if (!res.ok) return;
         var data = await res.json();
         var msgs = Array.isArray(data.messages) ? data.messages : [];
+        // Server is authoritative: lock when guard_blocked OR quota_locked; unlock otherwise.
+        var isLocked = data.guard_blocked || data.quota_locked;
+        var lockMsg  = data.quota_locked ? (data.quota_message || undefined) : undefined;
+        if (isLocked) this._setBlocked(true, lockMsg);
+        else this._clearBlocked();
         if (!msgs.length) return;
         this.messages.innerHTML = "";
         this.messageCount = 0;
@@ -1132,6 +1147,8 @@
             skipFeedback: true,
           });
         });
+        if (isLocked) this._setBlocked(true, lockMsg);
+        else this._clearBlocked();
       } catch (_) {}
     }
 
@@ -2266,6 +2283,10 @@
     }
 
     sendText(msg) {
+      if (this._blocked) {
+        this.showToast("دسترسی شما به چت مسدود شده است.", 4000);
+        return;
+      }
       if (!msg || this.isLoading) return;
 
       var self = this;
@@ -2297,27 +2318,53 @@
         });
       })();
 
-      p.then(function () {
+        p.then(function () {
         self.playSound("receive");
       }).catch(function (err) {
+        // Guard blocks already surfaced as normal answers above — do not toast as error
+        if (err && (err.guardBlocked || err.guardRefused)) return;
         self.sendEvent("fallback_triggered", { message: err && err.message || "unknown" });
         var errMsg = err && err.userMessage ? err.userMessage : "متأسفانه در حال حاضر قادر به پاسخگویی نیستم. لطفاً دوباره تلاش کنید.";
         self.addMessage(errMsg, "bot", false, { isError: true, skipFeedback: true });
         self.showToast(errMsg, 5000);
       }).finally(function () {
         self.setLoading(false);
-        self.input.focus();
+        if (!self._blocked) self.input.focus();
       });
+    }
+
+    _setBlocked(blocked, msg) {
+      this._blocked = !!blocked;
+      if (blocked) this._persistBlocked();
+      else try { sessionStorage.removeItem("asw_blocked"); } catch (_) {}
+      var placeholder = blocked ? (msg || "دسترسی به چت مسدود شده است.") : (this.options.inputPlaceholder || "پیام خود را بنویسید...");
+      if (this.input) {
+        this.input.disabled = blocked;
+        this.input.placeholder = placeholder;
+      }
+      if (this.sendBtn) this.sendBtn.disabled = blocked || !this.input.value.trim();
+      if (this.micBtn) this.micBtn.hidden = blocked || this.micBtn.hidden;
+      if (!blocked) {
+        try { this.updateSendState(); if (this.input) this.input.focus(); } catch (_) {}
+      }
+    }
+
+    _clearBlocked() {
+      this._setBlocked(false);
     }
 
     handleAnswerResult(answer, meta) {
       meta = meta || {};
       var els = this.addMessage(answer, "bot", false, {
         citations: meta.citations || [],
-        skipFeedback: false,
+        skipFeedback: !!meta.guard_blocked || !!meta.quota_locked,
       });
       if (els.feedback && meta.message_id) {
         els.feedback.setAttribute("data-message-id", String(meta.message_id));
+      }
+      if (meta.guard_blocked || meta.quota_locked) {
+        this._setBlocked(true, meta.quota_locked ? (meta.quota_message || undefined) : undefined);
+        this.showToast(answer, 5000);
       }
       if (Array.isArray(meta.rule_actions) && meta.rule_actions.length) {
         this.applyRuleActions(meta.rule_actions, answer);
@@ -2466,6 +2513,7 @@
                     streamClosed = true;
                     ensurePaint();
                   } else if (name === "error") {
+                    // Guard block surfaces as done with guard_blocked, so plain errors stay here
                     var ee = new Error(data.message || "stream error");
                     ee.userMessage = data.message || "خطا در دریافت پاسخ.";
                     reject(ee);
@@ -2482,6 +2530,9 @@
           // Let the typewriter finish, then finalize.
           streamClosed = true;
           ensurePaint();
+        } else if (!streamedText && finishMeta && (finishMeta.quota_locked || finishMeta.answer)) {
+          // Server finalized without tokens (quota lock) — show its message directly.
+          this.handleAnswerResult(finishMeta.answer || finishMeta.message || "", finishMeta);
         } else if (!streamedText) {
           // SSE stream empty/unsupported → classic JSON roundtrip.
           var result = await this.callBackend(message);
@@ -2519,7 +2570,11 @@
         t.textContent = formatTime();
         els.col.appendChild(t);
       }
-      if (this.options.showFeedback !== false && els.feedback) {
+      if (meta.guard_blocked || meta.quota_locked) {
+        this._setBlocked(true, meta.quota_locked ? (meta.quota_message || undefined) : undefined);
+        this.showToast(answer, 5000);
+        if (els.feedback) els.feedback.hidden = true;
+      } else if (this.options.showFeedback !== false && els.feedback) {
         els.feedback.setAttribute("data-question", (this._lastUserMessage || "").substring(0, 200));
         els.feedback.setAttribute("data-answer", answer.substring(0, 300));
         if (meta.message_id) els.feedback.setAttribute("data-message-id", String(meta.message_id));
@@ -2620,6 +2675,26 @@
         var data = {};
         try { data = await res.json(); } catch (_) { data = {}; }
         if (!res.ok) {
+          // Guard block: server returns 403 with answer=block_message — show as normal bot reply, not error
+          if (res.status === 403 && (data.guard_blocked || data.quota_locked || data.answer)) {
+            var blockAnswer = data.answer || data.message || "دسترسی شما مسدود شده است.";
+            if (data.conversation_id) {
+              this.conversationId = data.conversation_id;
+              this.conversationToken = data.conversation_token || this.conversationToken;
+              this.saveConversation();
+            }
+            return {
+              answer: String(blockAnswer).trim(),
+              citations: data.citations || [],
+              message_id: data.message_id,
+              fallback: false,
+              rule_actions: data.rule_actions || [],
+              guard_blocked: !!data.guard_blocked,
+              guard_refused: !!data.guard_refused,
+              quota_locked: !!data.quota_locked,
+              quota_message: data.quota_message || "",
+            };
+          }
           var e = new Error(data.message || data.error || "Request failed");
           e.userMessage = res.status >= 500
             ? "سرویس موقتاً در دسترس نیست. لطفاً لحظاتی بعد دوباره تلاش کنید."
@@ -2639,6 +2714,10 @@
           message_id: data.message_id,
           fallback: data.fallback || false,
           rule_actions: data.rule_actions || [],
+          guard_blocked: !!data.guard_blocked,
+          guard_refused: !!data.guard_refused,
+          quota_locked: !!data.quota_locked,
+          quota_message: data.quota_message || "",
         };
       } catch (err) {
         if (err.name === "AbortError") {

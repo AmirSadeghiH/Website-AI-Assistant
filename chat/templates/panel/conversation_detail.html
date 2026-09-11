@@ -12,6 +12,12 @@
       <option value="handed_off" {% if conversation.status == 'handed_off' %}selected{% endif %}>ارجاع‌شده</option>
     </select>
   </form>
+  {% if conversation.is_blocked %}
+  <form method="post" action="{% url 'panel:guard-unblock' conversation.pk %}">
+    {% csrf_token %}
+    <button class="btn" type="submit" title="تلاش‌ها صفر و بلاک برداشته می‌شود">رفع انسداد</button>
+  </form>
+  {% endif %}
   <a class="btn btn-ghost" href="{% url 'panel:conversations' %}">← بازگشت به فهرست</a>
 {% endblock %}
 
@@ -38,6 +44,11 @@
       </div>
     </div>
   </div>
+  {% if conversation.is_blocked %}
+  <div class="card" style="border-color:#fecaca;background:#fef2f2">
+    <div style="display:flex;align-items:center;gap:10px"><span class="badge-pill" style="background:#fee2e2;color:#991b1b;border-color:#fecaca">بلاک شده</span><span class="small muted">تلاش‌ها: {{ conversation.guard_attempts }} · از {{ conversation.blocked_at|date:"Y/m/d H:i" }} · دلیل: {{ conversation.block_reason|default:"—" }}</span></div>
+  </div>
+  {% endif %}
 
   <div class="card">
     <div class="card-head">

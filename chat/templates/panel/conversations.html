@@ -5,6 +5,7 @@
 
 {% block content %}
   <form method="get" class="filters">
+    <label style="display:flex;align-items:center;gap:6px;font-size:12px"><input type="checkbox" name="blocked" value="1" {% if blocked_only %}checked{% endif %} onchange="this.form.submit()"> فقط بلاک‌شده‌ها</label>
     <input type="text" name="q" value="{{ query }}" placeholder="جستجو در متن پیام‌ها…" style="min-width:220px">
     <select name="status" onchange="this.form.submit()">
       <option value="">همه وضعیت‌ها</option>
@@ -27,10 +28,19 @@
     <button class="btn btn-primary btn-sm" type="submit">جستجو</button>
   </form>
 
+  {% if blocked_only %}
+  <div style="display:flex;justify-content:flex-end;margin:8px 0">
+    <form method="post" action="{% url 'panel:guard-unblock-all' %}">
+      {% csrf_token %}
+      <input type="hidden" name="next" value="{{ request.get_full_path }}">
+      <button class="btn" type="submit" style="background:#fee2e2;border-color:#fecaca;color:#991b1b">رفع انسداد همه ({{ total }})</button>
+    </form>
+  </div>
+  {% endif %}
   <div class="card table-wrap">
     <table>
       <thead>
-        <tr><th>مکالمه</th><th>وضعیت</th><th>نیت‌ها</th><th>پیام‌ها</th><th>منشأ</th><th>شروع</th><th>آخرین فعالیت</th></tr>
+        <tr><th>مکالمه</th><th>وضعیت</th><th>نیت‌ها</th><th>پیام‌ها</th><th>منشأ</th><th>شروع</th><th>آخرین فعالیت</th><th></th></tr>
       </thead>
       <tbody>
         {% for conv in items %}
@@ -40,7 +50,8 @@
               <div class="small muted mono">{{ conv.conversation_id|truncatechars:20 }}</div>
             </td>
             <td>
-              {% if conv.status == "resolved" %}<span class="badge-pill ok"><span class="dot"></span>حل‌شده</span>
+              {% if conv.is_blocked %}<span class="badge-pill" style="background:#fee2e2;color:#991b1b;border-color:#fecaca"><span class="dot" style="background:#dc2626"></span>بلاک ({{ conv.guard_attempts }})</span>
+              {% elif conv.status == "resolved" %}<span class="badge-pill ok"><span class="dot"></span>حل‌شده</span>
               {% elif conv.status == "handed_off" %}<span class="badge-pill warn"><span class="dot"></span>ارجاع‌شده</span>
               {% else %}<span class="badge-pill info"><span class="dot"></span>باز</span>{% endif %}
             </td>
@@ -49,9 +60,18 @@
             <td class="small muted">{{ conv.get_origin_display|default:conv.origin }}</td>
             <td class="small muted">{{ conv.created_at|date:"m/d H:i" }}</td>
             <td class="small muted">{{ conv.updated_at|date:"m/d H:i" }}</td>
+            <td>
+              {% if conv.is_blocked %}
+              <form method="post" action="{% url 'panel:guard-unblock' conv.pk %}">
+                {% csrf_token %}
+                <input type="hidden" name="next" value="{{ request.get_full_path }}">
+                <button class="btn btn-sm" type="submit">رفع انسداد</button>
+              </form>
+              {% endif %}
+            </td>
           </tr>
         {% empty %}
-          <tr><td colspan="7"><div class="empty"><div class="empty-icon">💬</div>مکالمه‌ای در این بازه یافت نشد</div></td></tr>
+          <tr><td colspan="8"><div class="empty"><div class="empty-icon">💬</div>مکالمه‌ای در این بازه یافت نشد</div></td></tr>
         {% endfor %}
       </tbody>
     </table>

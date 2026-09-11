@@ -1,0 +1,30 @@
+{% extends "panel/base.html" %}
+{% block title %}هویت و پلن سایت{% endblock %}
+{% block page_title %}هویت و پلن{% endblock %}
+{% block page_sub %}نوع کسب‌وکار رفتارِ دستیار را می‌چرخاند؛ پلن گیتِ قابلیت‌هاست (سهمیه در مرحلهٔ بعد).{% endblock %}
+{% block content %}
+<form method="post" class="card card-pad" style="max-width:640px">
+  {% csrf_token %}
+  <div class="form-grid">
+    <div class="field">
+      <label>{{ form.business_type.label }}</label>
+      {{ form.business_type }}
+      <div class="small muted">فروش = اقناعی و دعوت به اقدام · پشتیبانی = عیب‌یابی گام‌به‌گام · عمومی = کوتاه و خنثی</div>
+      {% for e in form.business_type.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="field">
+      <label>{{ form.plan.label }}</label>
+      {{ form.plan }}
+      {% for e in form.plan.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}
+    </div>
+    <div class="field full">
+      <label>{{ form.note.label }}</label>
+      {{ form.note }}
+    </div>
+  </div>
+  <div class="mt" style="display:flex;gap:8px">
+    <button class="btn btn-primary" type="submit">ذخیره</button>
+    <a class="btn" href="{% url 'panel:command-room' %}">بازگشت</a>
+  </div>
+</form>
+{% endblock %}

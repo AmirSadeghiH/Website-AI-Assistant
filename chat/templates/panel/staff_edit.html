@@ -1,0 +1,54 @@
+{% extends "panel/base.html" %}
+{% block title %}ویرایش ادمین{% endblock %}
+{% block page_title %}ویرایش: {{ u.username }}{% endblock %}
+{% block page_sub %}دسترسی‌های صفحه‌ای، ریست رمز، فعال/غیرفعال، حذف{% endblock %}
+{% block content %}
+<div class="card card-pad" style="max-width:720px">
+  <form method="post">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="save">
+    <div class="field full">
+      <label>ایمیل</label>
+      <input type="email" name="email" value="{{ u.email }}" class="form-control">
+    </div>
+    <div class="field full mt">
+      <label>دسترسی به صفحات (تیک = مجاز)</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        {% for key,label in perm.PAGE_CHOICES %}
+          <label class="small" style="display:flex;gap:6px;align-items:center">
+            <input type="checkbox" name="allowed_pages" value="{{ key }}" {% if key in perm.allowed_pages %}checked{% endif %}> {{ label }}
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+    <div class="mt" style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-primary" type="submit">ذخیره دسترسی‌ها</button>
+      <a class="btn" href="{% url 'panel:staff-list' %}">بازگشت</a>
+    </div>
+  </form>
+
+  <hr style="margin:16px 0;border:none;border-top:1px solid var(--line)">
+
+  <form method="post" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+    {% csrf_token %}
+    <input type="hidden" name="action" value="reset_password">
+    <div class="field" style="flex:1;min-width:200px">
+      <label>رمز جدید (≥ ۸ کاراکتر)</label>
+      <input type="password" name="new_password" class="form-control">
+    </div>
+    <button class="btn" type="submit">ریست رمز</button>
+  </form>
+
+  <div class="mt" style="display:flex;gap:8px;flex-wrap:wrap">
+    <form method="post">
+      {% csrf_token %}<input type="hidden" name="action" value="toggle_active">
+      <button class="btn" type="submit">{% if u.is_active %}غیرفعال کردن{% else %}فعال کردن{% endif %}</button>
+    </form>
+    <form method="post" onsubmit="return confirm('حذف ادمین «{{ u.username }}»؟')">
+      {% csrf_token %}<input type="hidden" name="action" value="delete">
+      <button class="btn" type="submit" style="background:#fee2e2;color:#991b1b;border-color:#fecaca">حذف ادمین</button>
+    </form>
+  </div>
+  <div class="small muted mt">سوپریوزرها از اتاق فرمان ویرایش/حذف نمی‌شوند — مدیریتِ آن‌ها از <a href=\"/admin/auth/user/\">/admin</a> انجام می‌شود.</div>
+</div>
+{% endblock %}

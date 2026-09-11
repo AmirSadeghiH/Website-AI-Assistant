@@ -3,6 +3,7 @@ import uuid
 
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
 
 from .encrypted_fields import EncryptedCharField
 
@@ -325,6 +326,21 @@ class WidgetConfig(models.Model):
         default=6,
         help_text="How many previous messages are included as conversation context (0-20). Ignored when memory is disabled.",
     )
+    # Plan metering preset: how much text counts as ONE message unit.
+    # Admin sees only خیلی کم/کم/متوسط/زیاد/خیلی زیاد; the char math is in
+    # chat/plans.py and never surfaces as raw numbers.
+    input_size_class = models.CharField(
+        max_length=12,
+        choices=[
+            ("very_low", "خیلی کم"),
+            ("low", "کم"),
+            ("medium", "متوسط"),
+            ("high", "زیاد"),
+            ("very_high", "خیلی زیاد"),
+        ],
+        default="medium",
+        help_text="چقدر ورودی یک پیام حساب شود (پشت‌صحنه).",
+    )
     temperature = models.DecimalField(
         max_digits=3,
         decimal_places=2,
@@ -401,6 +417,23 @@ class WidgetConfig(models.Model):
 
 
 # ── Prompt builder helper (kept here to avoid circular imports) ──────────
+def _business_mission(business_type: str) -> str:
+    if business_type == "sales":
+        return (
+            "مأموریت تو فروش است: با لحن حرفه‌ای و متقاعدکننده، مزیت محصول را برجسته کن، "
+            "اعتراض‌ها را همدلانه رفع کن و کاربر را به اقدام (خرید/ثبت درخواست) دعوت کن — "
+            "هرگز دروغ نگو و فقط از متن منابع استفاده کن."
+        )
+    if business_type == "support":
+        return (
+            "مأموریت تو پشتیبانی است: مسئلهٔ کاربر را قدم‌به‌قدم تشخیص بده، راه‌حل را واضح و "
+            "قابل اجرا توضیح بده و در پایان بپرس آیا مشکل حل شد یا نیاز به کارشناس دارد."
+        )
+    return (
+        "مأموریت تو پاسخ دقیق به سؤالات دربارهٔ کسب‌وکار است: کوتاه، مستند به منابع و بی‌طرف."
+    )
+
+
 def build_auto_system_prompt(config):
     """Compose a high-quality system prompt from widget/business context."""
     name = (getattr(config, "prompt_assistant_name", "") or "").strip() or "دستیار هوشمند"
@@ -409,6 +442,14 @@ def build_auto_system_prompt(config):
     lang = getattr(config, "prompt_language", "fa")
     use_emoji = bool(getattr(config, "prompt_use_emoji", True))
     length = getattr(config, "prompt_answer_length", "balanced")
+
+    # SiteProfile.business_type steers the mission (superuser-controlled)
+    try:
+        from chat.models import SiteProfile
+        sp = SiteProfile.objects.first()
+        business_type = sp.business_type if sp else "general"
+    except Exception:
+        business_type = "general"
 
     tone_map = {
         "friendly": "صمیمی، گرم و دوستانه اما حرفه‌ای",
@@ -429,6 +470,7 @@ def build_auto_system_prompt(config):
     }
     parts = [
         f"تو «{name}» هستی — دستیار هوشمند همین سایت.",
+        _business_mission(business_type),
         f"لحن تو {tone_map.get(tone, tone_map['friendly'])} است.",
         lang_map.get(lang, lang_map["fa"]),
         length_map.get(length, length_map["balanced"]),
@@ -564,6 +606,10 @@ class Conversation(models.Model):
     origin = models.CharField(max_length=300, blank=True)
     path = models.CharField(max_length=1000, blank=True)
     visitor_key = models.CharField(max_length=64, blank=True, db_index=True)
+    is_blocked = models.BooleanField(default=False, db_index=True)
+    blocked_at = models.DateTimeField(null=True, blank=True)
+    block_reason = models.CharField(max_length=100, blank=True)
+    guard_attempts = models.PositiveSmallIntegerField(default=0)
     lead = models.ForeignKey(
         "Lead",
         null=True,
@@ -604,6 +650,10 @@ class Message(models.Model):
     # Token index of the last streamed assistant chunk (for resume-safe history)
     is_streamed = models.BooleanField(default=False)
     latency_ms = models.PositiveIntegerField(null=True, blank=True)
+    # Plan-metering: how many message-units this user message consumed
+    # (computed from WidgetConfig.input_size_class at creation time; user
+    # messages only — assistant replies are free).
+    units = models.PositiveSmallIntegerField(default=1)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -848,6 +898,171 @@ class AnalyticsEvent(models.Model):
 
     def __str__(self):
         return self.event_type
+
+
+class GuardSettings(models.Model):
+    """Prompt-injection guard — three sensitivity levels + auto-block.
+
+    Singleton: one row controls the whole deployment.
+    """
+
+    LEVEL_CHOICES = (
+        ("off", "خاموش"),
+        ("simple", "نگهبان ساده"),
+        ("veteran", "نگهبان کارکشته"),
+    )
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    level = models.CharField(max_length=10, choices=LEVEL_CHOICES, default="simple")
+    block_threshold = models.PositiveSmallIntegerField(
+        default=3,
+        help_text="بعد از چند تشخیص، کاربر بلاک شود (۲ تا ۲۰).",
+    )
+    block_message = models.TextField(
+        default="به دلیل فعالیت مشکوک، دسترسی شما به چت مسدود شده است.",
+        help_text="پیامی که به‌عنوان آخرین پاسخ برای کاربر بلاک‌شده نمایش داده می‌شود.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Guard settings"
+        verbose_name_plural = "Guard settings"
+
+    def clean(self):
+        if GuardSettings.objects.exclude(pk=self.pk).exists():
+            raise ValidationError("Only one guard settings record is allowed.")
+        if not 2 <= int(self.block_threshold or 0) <= 20:
+            raise ValidationError({"block_threshold": "آستانه باید بین ۲ تا ۲۰ باشد."})
+
+    def __str__(self):
+        return f"guard:{self.level}/{self.block_threshold}"
+
+
+class SiteProfile(models.Model):
+    """Singleton: owner-controlled business identity + plan for next milestones.
+
+    Lives under the superuser-only «اتاق فرمان» tab. `business_type` drives
+    the assistant tone/logic via build_auto_system_prompt; `plan` gates
+    features (streaming, handoff, guard level, knowledge caps) and will back
+    quota/trial logic in the next step. Not exposed to admin users.
+    """
+
+    BUSINESS_TYPE_CHOICES = (
+        ("sales", "فروش — متقاعدسازی حرفه‌ای"),
+        ("support", "پشتیبانی — راهنمایی گام‌به‌گام"),
+        ("general", "عمومی — پاسخ مستقیم به سؤالات"),
+    )
+    PLAN_CHOICES = (
+        ("simple", "هم پاسخ"),
+        ("plus", "هم پاسخ پلاس"),
+        ("pro", "هم پاسخ پرو"),
+    )
+    DURATION_CHOICES = (
+        (1, "۱ ماهه"),
+        (3, "۳ ماهه"),
+        (12, "۱ ساله"),
+    )
+
+    singleton_key = models.PositiveSmallIntegerField(default=1, unique=True, editable=False)
+    business_type = models.CharField(max_length=10, choices=BUSINESS_TYPE_CHOICES, default="general")
+    plan = models.CharField(max_length=10, choices=PLAN_CHOICES, default="simple")
+
+    # ── Subscription period ────────────────────────────────────────────
+    period_start = models.DateTimeField(null=True, blank=True, help_text="لنگرِ دوره‌های ماهانه (تاریخ فعال‌سازی).")
+    period_months = models.PositiveSmallIntegerField(choices=DURATION_CHOICES, default=1)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    # Expiry has been enforced (key rotated + origins cleared) — cleared on renew.
+    suspended = models.BooleanField(default=False)
+    # Original allowed-origins stashed here when the plan expired.
+    suspended_origins = models.TextField(blank=True)
+    # Manual chat-close switch (superuser, from command room). When ON the
+    # widget chat is locked until the next cycle / manual reopen.
+    quota_locked = models.BooleanField(default=False)
+    note = models.TextField(blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Site profile"
+        verbose_name_plural = "Site profile"
+
+    def clean(self):
+        if SiteProfile.objects.exclude(pk=self.pk).exists():
+            raise ValidationError("Only one site profile record is allowed.")
+
+    # ── Helpers ────────────────────────────────────────────────────────
+    @property
+    def is_expired(self) -> bool:
+        if not self.expires_at:
+            return False
+        return timezone.now() > self.expires_at
+
+    @property
+    def is_active(self) -> bool:
+        return bool(self.expires_at) and not self.is_expired
+
+    @property
+    def days_remaining(self) -> int:
+        if not self.expires_at:
+            return 0
+        delta = self.expires_at - timezone.now()
+        return max(0, delta.days)
+
+    def monthly_limit(self) -> int:
+        from .plans import PLAN_LIMITS
+        return PLAN_LIMITS.get(self.plan, 0)
+
+    def usage(self) -> dict:
+        from .plans import quota_info
+        return quota_info(self.plan, self.period_start)
+
+    def __str__(self):
+        return f"{self.get_business_type_display()} / {self.get_plan_display()}"
+
+
+class StaffPermission(models.Model):
+    """Per-staff page access for users created from «اتاق فرمان».
+
+    One row per staff user. `allowed_pages` is the set of panel pages the
+    user may open; anything else returns 403. Kept intentionally flat
+    (no groups/roles) per the validated design: MVP = page-level visibility.
+    """
+
+    # Canonical panel page keys — must stay in sync with PANEL_PAGES below.
+    PAGE_CHOICES = (
+        ("dashboard", "داشبورد"),
+        ("conversations", "مکالمات"),
+        ("unanswered", "سؤالات بی‌پاسخ"),
+        ("leads", "سرنخ‌ها"),
+        ("handoff", "درخواست‌های پشتیبانی"),
+        ("knowledge", "پایگاه دانش"),
+        ("customizer", "شخصی‌سازی ویجت"),
+        ("installation", "نصب ویجت"),
+        ("ai_settings", "تنظیمات هوش مصنوعی"),
+        ("business_rules", "قوانین کسب‌وکار"),
+        ("guard_settings", "محافظ محتوا"),
+        ("wizard", "گام‌های راه‌اندازی"),
+    )
+
+    user = models.OneToOneField(
+        "auth.User", on_delete=models.CASCADE, related_name="staff_permission"
+    )
+    allowed_pages = models.JSONField(default=list, blank=True)
+    created_by = models.ForeignKey(
+        "auth.User", null=True, blank=True, on_delete=models.SET_NULL, related_name="created_staff_permissions"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def clean(self):
+        valid = {k for k, _ in self.PAGE_CHOICES}
+        cleaned = [k for k in (self.allowed_pages or []) if k in valid]
+        self.allowed_pages = sorted(set(cleaned))
+
+    def allows(self, page: str) -> bool:
+        return page in (self.allowed_pages or [])
+
+    def __str__(self):
+        return f"{self.user} -> {','.join(self.allowed_pages or [])}"
 
 
 class AdminNotification(models.Model):

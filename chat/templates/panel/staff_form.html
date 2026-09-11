@@ -1,0 +1,26 @@
+{% extends "panel/base.html" %}
+{% block title %}ساخت ادمین{% endblock %}
+{% block page_title %}ساخت ادمین{% endblock %}
+{% block page_sub %}نام کاربری + رمز + تیکِ دسترسی به هر صفحه (MVP = فقط دیدن/ندیدن){% endblock %}
+{% block content %}
+<form method="post" class="card card-pad" style="max-width:640px">
+  {% csrf_token %}
+  <div class="form-grid">
+    <div class="field"><label>نام کاربری</label>{{ form.username }}{% for e in form.username.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}</div>
+    <div class="field"><label>ایمیل</label>{{ form.email }}{% for e in form.email.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}</div>
+    <div class="field"><label>رمز عبور</label>{{ form.password }}{% for e in form.password.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}</div>
+    <div class="field"><label>تکرار رمز</label>{{ form.password2 }}{% for e in form.password2.errors %}<div class="small text-danger">{{ e }}</div>{% endfor %}</div>
+    <div class="field full">
+      <label>دسترسی به صفحات</label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+        {% for v in form.allowed_pages %}<label class="small" style="display:flex;gap:6px;align-items:center">{{ v.tag }} {{ v.choice_label }}</label>{% endfor %}
+      </div>
+    </div>
+  </div>
+  {% if form.non_field_errors %}{% for e in form.non_field_errors %}<div class="small text-danger mt">{{ e }}</div>{% endfor %}{% endif %}
+  <div class="mt" style="display:flex;gap:8px">
+    <button class="btn btn-primary" type="submit">ساخت ادمین</button>
+    <a class="btn" href="{% url 'panel:staff-list' %}">انصراف</a>
+  </div>
+</form>
+{% endblock %}

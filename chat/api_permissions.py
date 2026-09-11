@@ -173,6 +173,16 @@ class WidgetAccessPermission(BasePermission):
     message = "Widget access is not authorized."
 
     def has_permission(self, request, view):
+        # Plan-expiry enforcement: if the subscription has ended, the widget
+        # must be dead — but only if not on the local-dev loopback bypass.
+        is_local = getattr(settings, "DEBUG", False) and _request_is_local(request)
+        if not is_local:
+            from .plans import ensure_plan_state, plan_is_expired
+            ensure_plan_state()
+            if plan_is_expired():
+                self.message = "Service expired."
+                return False
+
         configured_key, allowed_origins = get_widget_access_config()
         supplied_key = request.headers.get("X-Widget-Key", "")
         origin = _resolve_request_origin(request)
@@ -184,7 +194,7 @@ class WidgetAccessPermission(BasePermission):
         # exactly what produced the wall of 403s in the user's log.
         # In DEBUG we trust loopback unconditionally; production (DEBUG=False)
         # is unchanged and stays strict.
-        if getattr(settings, "DEBUG", False) and _request_is_local(request):
+        if is_local:
             return True
 
         # Enforce key requirement in production

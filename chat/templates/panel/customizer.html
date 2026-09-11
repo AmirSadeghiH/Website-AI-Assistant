@@ -132,6 +132,7 @@
       </div>
     </div>
   </form>
+  {{ preview_payload|json_script:"panel-preview-payload" }}
 {% endblock %}
 
 {% block scripts %}
@@ -151,18 +152,23 @@
           // also toggle aria for a11y
           btns.forEach(function (b) { b.setAttribute("aria-selected", String(b.getAttribute("data-tab") === name)); });
           try { localStorage.setItem("customizer:tab", name); } catch (_) {}
-          var url = new URL(window.location.href);
-          url.searchParams.set("tab", name);
-          try { history.replaceState(null, "", url); } catch (_) {}
+          try {
+            var url = new URL(window.location.href);
+            url.searchParams.set("tab", name);
+            history.replaceState(null, "", url);
+          } catch (_) {}
         }
 
-        // Restore last active tab (deep-link via ?tab= or localStorage)
+        // Restore last active tab (deep-link via ?tab= or localStorage) — with CSS.escape fallback
         (function () {
           var initial = null;
           try { initial = new URL(window.location.href).searchParams.get("tab"); } catch (_) {}
           if (!initial) { try { initial = localStorage.getItem("customizer:tab"); } catch (_) {} }
-          if (initial && scope.querySelector('.tab-btn[data-tab="' + CSS.escape(initial) + '"]')) {
-            activateTab(initial);
+          if (initial) {
+            var esc = (typeof CSS !== "undefined" && CSS.escape) ? CSS.escape(initial) : initial.replace(/["\\]/g, "\\$&");
+            try {
+              if (scope.querySelector('.tab-btn[data-tab="' + esc + '"]')) activateTab(initial);
+            } catch (_) {}
           }
         })();
 
@@ -174,7 +180,8 @@
           });
         });
         // keyboard: arrow navigation across tabs
-        scope.querySelector(".tabs").addEventListener("keydown", function (e) {
+        var tabsEl = scope.querySelector(".tabs");
+        if (tabsEl) tabsEl.addEventListener("keydown", function (e) {
           if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
           var cur = scope.querySelector(".tab-btn.active");
           var list = Array.prototype.slice.call(btns);
@@ -197,8 +204,6 @@
       var form = document.getElementById("customizer-form");
       if (!form || !frame) return;
 
-      // Live preview: push form changes into the widget iframe as JSON
-      {{ preview_payload|json_script:"panel-preview-payload" }}
       var baseCfg;
       try { baseCfg = JSON.parse(document.getElementById("panel-preview-payload").textContent); } catch (e) { baseCfg = {}; }
 

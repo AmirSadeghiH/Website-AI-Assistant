@@ -64,6 +64,18 @@ class WidgetBehaviorForm(forms.ModelForm):
         required=False, min_value=0, max_value=20,
         help_text="وقتی حافظه روشن است استفاده می‌شود. ۰ = بدون حافظه، ۴-۸ پیشنهادی.",
     )
+    input_size_class = forms.ChoiceField(
+        label="حجم پیام کاربر (مبنای شمارش)",
+        required=False,
+        choices=[
+            ("very_low", "خیلی کم — فقط سؤال‌های یک‌خطی"),
+            ("low", "کم — سؤال‌های معمولی"),
+            ("medium", "متوسط — پیشنهادی"),
+            ("high", "زیاد — پیام‌های بلندتر عادی حساب می‌شوند"),
+            ("very_high", "خیلی زیاد — هر پیام تقریباً یک واحد"),
+        ],
+        help_text="مبنای محاسبهٔ مصرف ماهانه. عدد کاراکتر پشت‌صحنه است و نمایش داده نمی‌شود.",
+    )
     suggestions_text = forms.CharField(
         label="سؤال‌های پیشنهادی (هر سطر یک سؤال)",
         required=False,
@@ -85,6 +97,7 @@ class WidgetBehaviorForm(forms.ModelForm):
             "show_citations",
             "enable_conversation_memory",
             "context_window",
+            "input_size_class",
             "faq_url",
             "privacy_url",
             "support_email",
@@ -340,6 +353,76 @@ class PromptBuilderForm(forms.ModelForm):
             "system_prompt": forms.Textarea(attrs={"rows": 6, "dir": "ltr"}),
             "user_prompt": forms.Textarea(attrs={"rows": 4, "dir": "ltr"}),
         }
+
+
+class SiteProfileForm(forms.ModelForm):
+    class Meta:
+        model = __import__("chat.models", fromlist=["SiteProfile"]).SiteProfile
+        fields = ("business_type", "plan", "note")
+        labels = {
+            "business_type": "نوع کسب‌وکار (رفتار دستیار)",
+            "plan": "پلن فعال",
+            "note": "یادداشت داخلی مالک",
+        }
+        widgets = {
+            "note": forms.Textarea(attrs={"rows": 2}),
+        }
+
+
+class SiteAdminCreateForm(forms.Form):
+    """Create a staff user from «اتاق فرمان» with page-level access."""
+
+    username = forms.CharField(label="نام کاربری", max_length=150)
+    email = forms.EmailField(label="ایمیل", required=False)
+    password = forms.CharField(label="رمز عبور", widget=forms.PasswordInput(render_value=False))
+    password2 = forms.CharField(label="تکرار رمز", widget=forms.PasswordInput(render_value=False))
+    allowed_pages = forms.MultipleChoiceField(
+        label="دسترسی به صفحات",
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        choices=__import__("chat.models", fromlist=["StaffPermission"]).StaffPermission.PAGE_CHOICES,
+    )
+
+    def clean_username(self):
+        from django.contrib.auth import get_user_model
+        User = get_user_model()
+        v = self.cleaned_data["username"].strip()
+        if User.objects.filter(username=v).exists():
+            raise forms.ValidationError("این نام کاربری قبلاً ثبت شده است.")
+        return v
+
+    def clean(self):
+        data = super().clean()
+        if data.get("password") != data.get("password2"):
+            self.add_error("password2", "تکرار رمز با رمز اصلی یکسان نیست.")
+        if data.get("password") and len(data["password"]) < 8:
+            self.add_error("password", "رمز باید حداقل ۸ کاراکتر باشد.")
+        return data
+
+
+class GuardSettingsForm(forms.ModelForm):
+    class Meta:
+        from chat.models import GuardSettings  # noqa: F811
+
+        model = __import__("chat.models", fromlist=["GuardSettings"]).GuardSettings
+        fields = ("level", "block_threshold", "block_message")
+        widgets = {
+            "block_message": forms.Textarea(attrs={"rows": 2, "dir": "rtl"}),
+        }
+        labels = {
+            "level": "سطح حساسیت نگهبان",
+            "block_threshold": "آستانهٔ مسدودسازی (چند بار سوءاستفاده → بلاک)",
+            "block_message": "پیام مسدودشده (آخرین پیام برای کاربر بلاک‌شده)",
+        }
+
+    def clean_block_threshold(self):
+        v = self.cleaned_data.get("block_threshold")
+        if v is None:
+            return v
+        v = int(v)
+        if not 2 <= v <= 20:
+            raise forms.ValidationError("آستانه باید بین ۲ تا ۲۰ باشد.")
+        return v
 
 
 class BusinessRuleForm(forms.ModelForm):

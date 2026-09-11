@@ -226,6 +226,45 @@ class MediaDocumentProtectionMiddleware:
         return self.get_response(request)
 
 
+class PlanEnforcementMiddleware:
+    """Lock the panel for non-superuser staff when the plan has expired.
+
+    Allows logout / static paths so the locked page renders cleanly.
+    Superusers are never affected.
+    """
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        # Only block panel + admin paths (static/demo/widget don't matter)
+        path = request.path
+        is_panel = path.startswith("/panel/") or path.startswith("/admin/")
+        if not is_panel:
+            return self.get_response(request)
+
+        # Allow logout + login form display (GET) so the lock page works
+        if path.startswith("/admin/logout") or path.startswith("/admin/jsi18n") or path.startswith("/static/"):
+            return self.get_response(request)
+
+        user = getattr(request, "user", None)
+        if (
+            user
+            and user.is_authenticated
+            and user.is_staff
+            and not user.is_superuser
+        ):
+            try:
+                from .plans import ensure_plan_state, plan_is_expired
+                ensure_plan_state()
+                if plan_is_expired():
+                    from django.shortcuts import render
+                    return render(request, "panel/plan_locked.html", status=403)
+            except Exception:
+                pass
+        return self.get_response(request)
+
+
 class RequestMonitoringMiddleware:
     """Track request latency and error rates; create admin notifications on pressure.
 

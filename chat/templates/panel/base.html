@@ -23,54 +23,98 @@
     </div>
 
     <nav class="nav" aria-label="ناوبری اصلی">
+      {# Sidebar is ACL-filtered when allowed_pages is a set/list (staff with a StaffPermission row). #}
+      {# None = unrestricted (superuser or legacy staff without a row) -> show all. #}
+      {% if allowed_pages is None or "dashboard" in allowed_pages %}
       <div class="nav-label">پایش</div>
       <a href="{% url 'panel:dashboard' %}" class="{% if nav == 'dashboard' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>
         داشبورد
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "conversations" in allowed_pages %}
       <a href="{% url 'panel:conversations' %}" class="{% if nav == 'conversations' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
         مکالمات
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "unanswered" in allowed_pages %}
       <a href="{% url 'panel:unanswered' %}" class="{% if nav == 'unanswered' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
         سؤالات بی‌پاسخ
         {% if unanswered_open %}<span class="badge">{{ unanswered_open }}</span>{% endif %}
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "leads" in allowed_pages or "handoff" in allowed_pages %}
       <div class="nav-label">رشد</div>
+      {% endif %}
+      {% if allowed_pages is None or "leads" in allowed_pages %}
       <a href="{% url 'panel:leads' %}" class="{% if nav == 'leads' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6M22 11h-6"/></svg>
         سرنخ‌ها
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "handoff" in allowed_pages %}
       <a href="{% url 'panel:handoff' %}" class="{% if nav == 'handoff' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg>
         درخواست‌های پشتیبانی
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "knowledge" in allowed_pages or "customizer" in allowed_pages or "installation" in allowed_pages or "ai_settings" in allowed_pages or "business_rules" in allowed_pages or "guard_settings" in allowed_pages or "wizard" in allowed_pages %}
       <div class="nav-label">پیکربندی</div>
+      {% endif %}
+      {% if allowed_pages is None or "knowledge" in allowed_pages %}
       <a href="{% url 'panel:knowledge' %}" class="{% if nav == 'knowledge' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
         پایگاه دانش
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "customizer" in allowed_pages %}
       <a href="{% url 'panel:customizer' %}" class="{% if nav == 'customizer' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.5" cy="6.5" r="2.5"/><circle cx="19" cy="13" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="10" cy="19" r="2.5"/></svg>
         طراحی ویجت
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "installation" in allowed_pages %}
       <a href="{% url 'panel:installation' %}" class="{% if nav == 'installation' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
         نصب و راه‌اندازی
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "ai_settings" in allowed_pages %}
       <a href="{% url 'panel:ai-settings' %}" class="{% if nav == 'ai-settings' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
         تنظیمات هوش مصنوعی
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "business_rules" in allowed_pages %}
       <a href="{% url 'panel:business-rules' %}" class="{% if nav == 'business-rules' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
         قوانین کسب‌وکار
       </a>
+      {% endif %}
+      {% if allowed_pages is None or "guard_settings" in allowed_pages %}
+      <a href="{% url 'panel:guard-settings' %}" class="{% if nav == 'guard-settings' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M9 12l2 2 4-4"/></svg>
+        محافظ محتوا
+      </a>
+      {% endif %}
+      {% if allowed_pages is None or "wizard" in allowed_pages %}
       <a href="{% url 'panel:wizard' %}" class="{% if nav == 'wizard' %}active{% endif %}">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l2.4 5.9L20 10l-5.6 2.1L12 18l-2.4-5.9L4 10l5.6-2.1z"/><path d="M19 15l1 2.5L22.5 18.5 20 19.5 19 22l-1-2.5-2.5-1 2.5-1z"/></svg>
         راهنمای راه‌اندازی
       </a>
+      {% endif %}
+
+      {% if is_superuser %}
+      <div class="nav-label" style="margin-top:14px;border-top:1px solid var(--line);padding-top:10px">اتاق فرمان — فقط مالک</div>
+      <a href="{% url 'panel:command-room' %}" class="{% if nav == 'command-room' %}active{% endif %}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l7 4v6c0 5-3.5 8-7 10-3.5-2-7-5-7-10V6z"/><circle cx="12" cy="13" r="3"/><path d="M12 2v4M12 16v6"/></svg>
+        اتاق فرمان
+      </a>
+      {% endif %}
+
+
     </nav>
 
     <div class="sidebar-footer">
@@ -101,7 +145,19 @@
       </div>
     {% endif %}
 
-    {% block content %}{% endblock %}
+    {% block content %}
+  {# ── Usage warning banner (all staff) ─────────────────────────────── #}
+  {% if usage_info and usage_info.pct >= 80 %}
+  <div style="border:1px solid {% if usage_info.exceeded %}#fecaca{% else %}#fde68a{% endif %};background:{% if usage_info.exceeded %}#fdeaea{% else %}#fdf3e3{% endif %};color:{% if usage_info.exceeded %}#991b1b{% else %}#92400e{% endif %};border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:12.5px">
+    {% if usage_info.exceeded %}
+      ⚠️ سهمیهٔ پیام این ماه تمام شده ({{ usage_info.used|floatformat:0 }} از {{ usage_info.limit|floatformat:0 }}).
+      {% if site_profile and site_profile.quota_locked %}چت توسط مالک بسته شده است.{% endif %}
+      {% if usage_info.cycle_end %}دورهٔ بعد از {{ usage_info.cycle_end|date:"Y-m-d" }} شروع می‌شود.{% endif %}
+    {% else %}
+      ⚠️ مصرف پیام این ماه به {{ usage_info.pct }}٪ رسیده ({{ usage_info.used|floatformat:0 }} از {{ usage_info.limit|floatformat:0 }}).
+    {% endif %}
+  </div>
+  {% endif %}{% endblock %}
   </main>
 </div>
 

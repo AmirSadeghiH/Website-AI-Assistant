@@ -19,6 +19,8 @@ from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 
+from .panel_access import PANEL_PAGE_LABELS, allowed_pages_for, command_room_required, panel_access_required
+
 from .crawler import enqueue_crawl_job
 from .document_pipeline import enqueue_document
 from .forms import (
@@ -62,9 +64,36 @@ def _form_errors(form):
     return " — ".join(parts) or "خطای نامشخص در فرم."
 
 
+# ─── Panel context helpers ──────────────────────────────────────────────
+
+def _panel_ctx(request, extra: dict | None = None) -> dict:
+    """Inject sidebar-visibility + allowed-pages into every panel render."""
+    ctx = {}
+    if request.user.is_authenticated:
+        ctx["is_superuser"] = bool(getattr(request.user, "is_superuser", False))
+        # For non-superuser staff, expose allowed pages so the sidebar hides
+        # disallowed links (defence-in-depth; view decorators still enforce).
+        allowed = allowed_pages_for(request.user)
+        ctx["allowed_pages"] = allowed  # None = unrestricted
+        # Also expose SiteProfile for the command-room badge (plan/business_type)
+        try:
+            from .models import SiteProfile
+            sp = SiteProfile.objects.first()
+            ctx["site_profile"] = sp
+            # Usage banner data (cheap: one SUM per panel page load)
+            if sp is not None and sp.expires_at and not sp.is_expired:
+                u = sp.usage()
+                ctx["usage_info"] = u
+        except Exception:
+            ctx["site_profile"] = None
+    if extra:
+        ctx.update(extra)
+    return ctx
+
+
 # ─── Dashboard ────────────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("dashboard")
 def dashboard(request):
     days, cutoff = _period(request.GET.get("days", 30))
 
@@ -130,7 +159,7 @@ def dashboard(request):
     docs_ready = Document.objects.filter(status="ready").count()
     docs_failed = Document.objects.filter(status="failed").count()
 
-    return render(request, "panel/dashboard.html", {
+    return render(request, "panel/dashboard.html", _panel_ctx(request, {
         "days": days,
         "days_choices": DAYS_CHOICES,
         "conversations_total": conversations_total,
@@ -157,12 +186,12 @@ def dashboard(request):
         "top_unanswered": top_unanswered,
         "recent_leads": recent_leads,
         "nav": "dashboard",
-    })
+    }))
 
 
 # ─── Conversations ────────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("conversations")
 def conversations(request):
     days, cutoff = _period(request.GET.get("days", 30))
     status_filter = request.GET.get("status", "")
@@ -176,6 +205,8 @@ def conversations(request):
         qs = qs.filter(last_intent=intent_filter)
     if query:
         qs = qs.filter(messages__content__icontains=query).distinct()
+    if request.GET.get("blocked") == "1":
+        qs = qs.filter(is_blocked=True)
     if request.GET.get("days") != "all":
         qs = qs.filter(updated_at__gte=cutoff)
 
@@ -185,7 +216,7 @@ def conversations(request):
     pages = max(1, (total + page_size - 1) // page_size)
     items = qs.prefetch_related("messages")[page_size * (page - 1): page_size * page]
 
-    return render(request, "panel/conversations.html", {
+    return render(request, "panel/conversations.html", _panel_ctx(request, {
         "items": items,
         "total": total,
         "page": page,
@@ -196,10 +227,11 @@ def conversations(request):
         "days": request.GET.get("days", 30),
         "intent_choices": INTENT_CHOICES,
         "nav": "conversations",
-    })
+        "blocked_only": request.GET.get("blocked") == "1",
+    }))
 
 
-@staff_member_required
+@panel_access_required("conversations")
 def conversation_detail(request, pk):
     conversation = get_object_or_404(Conversation.objects.prefetch_related("messages"), pk=pk)
     if request.method == "POST":
@@ -210,30 +242,30 @@ def conversation_detail(request, pk):
             messages.success(request, "وضعیت مکالمه به‌روزرسانی شد.")
         return redirect("panel:conversation-detail", pk=pk)
     intents = conversation.messages.values_list("intent", flat=True).exclude(intent="")
-    return render(request, "panel/conversation_detail.html", {
+    return render(request, "panel/conversation_detail.html", _panel_ctx(request, {
         "conversation": conversation,
         "intents": dict(INTENT_CHOICES),
         "nav": "conversations",
-    })
+    }))
 
 
 # ─── Unanswered questions ─────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("unanswered")
 def unanswered(request):
     items = UnansweredQuestion.objects.all()
     if request.GET.get("filter") == "resolved":
         items = items.filter(is_resolved=True)
     else:
         items = items.filter(is_resolved=False)
-    return render(request, "panel/unanswered.html", {
+    return render(request, "panel/unanswered.html", _panel_ctx(request, {
         "items": items,
         "filter": request.GET.get("filter", "open"),
         "nav": "unanswered",
-    })
+    }))
 
 
-@staff_member_required
+@panel_access_required("unanswered")
 @require_POST
 def unanswered_toggle(request, pk):
     row = get_object_or_404(UnansweredQuestion, pk=pk)
@@ -245,28 +277,28 @@ def unanswered_toggle(request, pk):
 
 # ─── Leads ────────────────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("leads")
 def leads(request):
     items = Lead.objects.select_related("conversation").all()
     source = request.GET.get("source", "")
     if source:
         items = items.filter(source=source)
-    return render(request, "panel/leads.html", {
+    return render(request, "panel/leads.html", _panel_ctx(request, {
         "items": items,
         "source": source,
         "nav": "leads",
-    })
+    }))
 
 
 # ─── Handoff requests ─────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("handoff")
 def handoff_requests(request):
     items = HandoffRequest.objects.select_related("conversation").all()
-    return render(request, "panel/handoff.html", {"items": items, "nav": "handoff"})
+    return render(request, "panel/handoff.html", _panel_ctx(request, {"items": items, "nav": "handoff"}))
 
 
-@staff_member_required
+@panel_access_required("leads")
 @require_POST
 def leads_update(request, pk):
     lead = get_object_or_404(Lead, pk=pk)
@@ -279,7 +311,7 @@ def leads_update(request, pk):
     return redirect("panel:leads")
 
 
-@staff_member_required
+@panel_access_required("handoff")
 @require_POST
 def handoff_update(request, pk):
     handoff = get_object_or_404(HandoffRequest, pk=pk)
@@ -302,7 +334,7 @@ def handoff_update(request, pk):
 
 # ─── Knowledge base (documents + crawler) ─────────────────────────────────
 
-@staff_member_required
+@panel_access_required("knowledge")
 def knowledge(request):
     from .forms import KnowledgeUploadForm
 
@@ -403,7 +435,7 @@ def knowledge(request):
 
     documents = Document.objects.all()
     jobs = CrawlJob.objects.all()[:12]
-    return render(request, "panel/knowledge.html", {
+    return render(request, "panel/knowledge.html", _panel_ctx(request, {
         "documents": documents,
         "documents_ready": documents.filter(status="ready").count(),
         "documents_failed": documents.filter(status="failed").count(),
@@ -412,10 +444,10 @@ def knowledge(request):
         "crawl_form": CrawlStartForm(),
         "upload_form": upload_form,
         "nav": "knowledge",
-    })
+    }))
 
 
-@staff_member_required
+@panel_access_required("knowledge")
 @require_POST
 def knowledge_delete(request, pk):
     document = get_object_or_404(Document, pk=pk)
@@ -428,7 +460,7 @@ def knowledge_delete(request, pk):
 
 # ─── Widget customizer (live preview) ─────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("customizer")
 def customizer(request):
     config = WidgetConfig.objects.first() or WidgetConfig.objects.create()
     if request.method == "POST":
@@ -451,13 +483,13 @@ def customizer(request):
         behavior = WidgetBehaviorForm(instance=config)
 
     preview_payload = json.dumps(_preview_config(config), ensure_ascii=False)
-    return render(request, "panel/customizer.html", {
+    return render(request, "panel/customizer.html", _panel_ctx(request, {
         "appearance": appearance,
         "behavior": behavior,
         "preview_payload": preview_payload,
         "widget_theme": config.widget_theme,
         "nav": "customizer",
-    })
+    }))
 
 
 def _preview_config(config):
@@ -514,7 +546,7 @@ def _preview_config(config):
 
 # ─── Installation ─────────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("installation")
 def installation(request):
     provider = ProviderSettings.objects.first()
     if provider is None:
@@ -542,7 +574,7 @@ def installation(request):
         f'        data-api="{base}/api/chat/"\n'
         f'        data-widget-key="{provider.widget_public_key}"></script>'
     )
-    return render(request, "panel/installation.html", {
+    return render(request, "panel/installation.html", _panel_ctx(request, {
         "form": form,
         "snippet": snippet,
         "base_url": base,
@@ -552,10 +584,10 @@ def installation(request):
         "widget_file": widget_file,
         "allowed_origins": provider.allowed_origins_list,
         "nav": "installation",
-    })
+    }))
 
 
-@staff_member_required
+@panel_access_required("installation")
 def installation_key(request):
     """Rotate the public widget key (regenerates a new installation key)."""
     import uuid
@@ -572,7 +604,7 @@ def installation_key(request):
 
 # ─── Onboarding wizard ────────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("wizard")
 def wizard(request):
     provider = ProviderSettings.objects.first()
     config = WidgetConfig.objects.first() or WidgetConfig.objects.create()
@@ -621,17 +653,17 @@ def wizard(request):
         },
     ]
     completed = sum(1 for step in steps if step["done"])
-    return render(request, "panel/wizard.html", {
+    return render(request, "panel/wizard.html", _panel_ctx(request, {
         "steps": steps,
         "completed": completed,
         "demo_url": request.build_absolute_uri("/demo/"),
         "nav": "wizard",
-    })
+    }))
 
 
 # ─── AI provider settings ─────────────────────────────────────────────────
 
-@staff_member_required
+@panel_access_required("ai_settings")
 def ai_settings(request):
     from .forms import PromptBuilderForm
 
@@ -670,16 +702,16 @@ def ai_settings(request):
     except Exception:
         auto_preview = ""
 
-    return render(request, "panel/ai_settings.html", {
+    return render(request, "panel/ai_settings.html", _panel_ctx(request, {
         "form": provider_form,
         "prompt_form": prompt_form,
         "auto_preview": auto_preview,
         "config": config,
         "nav": "ai-settings",
-    })
+    }))
 
 
-@staff_member_required
+@panel_access_required("business_rules")
 def business_rules(request):
     from .forms import BusinessRuleForm
     from .models import BusinessRule
@@ -718,24 +750,378 @@ def business_rules(request):
     from .models import BusinessRule
     rules = BusinessRule.objects.all().order_by("priority", "-updated_at")
     # Provide intent choices to the template for the trigger dropdown helper
-    return render(request, "panel/business_rules.html", {
+    return render(request, "panel/business_rules.html", _panel_ctx(request, {
         "form": form,
         "rules": rules,
         "intent_choices": INTENT_CHOICES,
         "nav": "business-rules",
-    })
+    }))
 
 
 # ─── Widget preview page (customizer iframe) ──────────────────────────────
 
-@staff_member_required
+@panel_access_required("customizer")
 def preview(request):
-    return render(request, "panel/preview.html")
+    return render(request, "panel/preview.html", _panel_ctx(request, {}))
+
+
+# ─── «اتاق فرمان» — superuser-only ─────────────────────────────────────
+
+def _plan_state_ctx(request, extra=None):
+    """Command-room context: SiteProfile + usage + expiry, always fresh."""
+    from .models import SiteProfile
+    from .plans import PLAN_LIMITS, PLAN_LABELS
+    sp = SiteProfile.objects.first()
+    if sp is None:
+        sp = SiteProfile.objects.create()
+    usage = sp.usage()
+    ctx = {
+        "sp": sp,
+        "usage": usage,
+        "plan_limits": PLAN_LIMITS,
+        "plan_labels": PLAN_LABELS,
+        "plan_cards": [
+            {"key": "simple", "label": PLAN_LABELS["simple"], "limit": PLAN_LIMITS["simple"]},
+            {"key": "plus",   "label": PLAN_LABELS["plus"],   "limit": PLAN_LIMITS["plus"]},
+            {"key": "pro",    "label": PLAN_LABELS["pro"],    "limit": PLAN_LIMITS["pro"]},
+        ],
+        "durations": [(1, "۱ ماهه"), (3, "۳ ماهه"), (12, "۱ ساله")],
+    }
+    if extra:
+        ctx.update(extra)
+    return ctx
+
+
+@command_room_required
+def command_room(request):
+    """Owner overview: SiteProfile + admin-user counts + plan/business_type."""
+    from .models import SiteProfile
+    from django.contrib.auth import get_user_model
+    User = get_user_model()
+    staff_qs = User.objects.filter(is_staff=True).order_by("username")
+    return render(request, "panel/command_room.html", _panel_ctx(request, _plan_state_ctx(request, {
+        "staff_qs": staff_qs,
+        "nav": "command-room",
+    })))
+
+
+@command_room_required
+@require_POST
+def plan_activate(request):
+    """Activate / renew a plan from the command room cards.
+
+    POST: plan=simple|plus|pro, months=1|3|12
+    - Active plan + same/other card → extend from current expiry (تمدید).
+    - Expired/suspended → re-activate from now: restore origins, rotate the
+      widget key (fresh snippet), clear suspended + quota_locked.
+    """
+    import uuid as _uuid
+    from .models import SiteProfile, ProviderSettings
+    from .plans import PLAN_LIMITS, add_months, invalidate_plan_state_cache
+    from django.utils import timezone as _tz
+
+    plan = request.POST.get("plan", "")
+    months = int(request.POST.get("months", 1) or 1)
+    if plan not in PLAN_LIMITS or months not in (1, 3, 12):
+        messages.error(request, "پلن یا مدت نامعتبر است.")
+        return redirect("panel:command-room")
+
+    sp = SiteProfile.objects.first()
+    if sp is None:
+        sp = SiteProfile.objects.create()
+    now = _tz.now()
+    provider = ProviderSettings.objects.first()
+    if provider is None:
+        provider = ProviderSettings.objects.create()
+
+    resumed = False
+    if sp.suspended or (sp.expires_at and sp.expires_at < now):
+        # (Re)activation: restore stashed origins + issue a fresh widget key
+        if sp.suspended_origins:
+            provider.widget_allowed_origins = sp.suspended_origins
+            sp.suspended_origins = ""
+        provider.widget_public_key = _uuid.uuid4().hex
+        provider.save(update_fields=("widget_public_key", "widget_allowed_origins", "updated_at"))
+        sp.suspended = False
+        sp.period_start = now
+        base = now
+        resumed = True
+    else:
+        # Renewal while active: extend from the current expiry, keep anchor
+        base = sp.expires_at or now
+        if not sp.period_start:
+            sp.period_start = now
+
+    sp.plan = plan
+    sp.period_months = months
+    sp.expires_at = add_months(base, months)
+    sp.quota_locked = False
+    sp.save(update_fields=("plan", "period_start", "period_months", "expires_at",
+                           "suspended", "suspended_origins", "quota_locked", "updated_at"))
+    cache.delete("ai-support:widget-config")
+    cache.delete("ai-support:installation")
+    invalidate_plan_state_cache()
+    label = {"simple": "هم پاسخ", "plus": "هم پاسخ پلاس", "pro": "هم پاسخ پرو"}[plan]
+    dur = {1: "۱ ماهه", 3: "۳ ماهه", 12: "۱ ساله"}[months]
+    verb = "فعال شد" if resumed else "تمدید شد"
+    messages.success(request, f"پلن «{label} {dur}» {verb}؛ تا {sp.expires_at.strftime('%Y-%m-%d')} اعتبار دارد.")
+    return redirect("panel:command-room")
+
+
+@command_room_required
+@require_POST
+def plan_quota_toggle(request):
+    """Manual chat-close switch: close until next cycle / reopen."""
+    from .models import SiteProfile
+    sp = SiteProfile.objects.first()
+    if sp is None:
+        sp = SiteProfile.objects.create()
+    sp.quota_locked = not sp.quota_locked
+    sp.save(update_fields=("quota_locked", "updated_at"))
+    if sp.quota_locked:
+        messages.success(request, "چت تا دورهٔ بعد بسته شد (ویجت قفل می‌شود).")
+    else:
+        messages.success(request, "چت باز شد.")
+    return redirect("panel:command-room")
+
+
+@command_room_required
+def site_profile(request):
+    from .forms import SiteProfileForm
+    from .models import SiteProfile
+    sp = SiteProfile.objects.first()
+    if sp is None:
+        sp = SiteProfile.objects.create()
+    if request.method == "POST":
+        form = SiteProfileForm(request.POST, instance=sp)
+        if form.is_valid():
+            form.save()
+            cache.delete("ai-support:widget-config")
+            messages.success(request, "پروفایل سایت ذخیره شد.")
+            return redirect("panel:command-room")
+        messages.error(request, _form_errors(form))
+    else:
+        form = SiteProfileForm(instance=sp)
+    return render(request, "panel/site_profile.html", _panel_ctx(request, {
+        "form": form,
+        "sp": sp,
+        "nav": "command-room",
+    }))
+
+
+@command_room_required
+def staff_list(request):
+    from django.contrib.auth import get_user_model
+    from .models import StaffPermission
+    User = get_user_model()
+    users = User.objects.filter(is_staff=True).select_related("staff_permission").order_by("-is_superuser", "username")
+    perms = {p.user_id: p for p in StaffPermission.objects.select_related("user").all()}
+    return render(request, "panel/staff_list.html", _panel_ctx(request, {
+        "users": users,
+        "perms": perms,
+        "nav": "command-room",
+    }))
+
+
+@command_room_required
+def staff_create(request):
+    from django.contrib.auth import get_user_model
+    from .forms import SiteAdminCreateForm
+    from .models import StaffPermission
+    User = get_user_model()
+    if request.method == "POST":
+        form = SiteAdminCreateForm(request.POST)
+        if form.is_valid():
+            user = User.objects.create_user(
+                username=form.cleaned_data["username"],
+                email=form.cleaned_data.get("email") or "",
+                password=form.cleaned_data["password"],
+                is_staff=True,
+                is_active=True,
+            )
+            StaffPermission.objects.create(
+                user=user,
+                allowed_pages=sorted(set(form.cleaned_data.get("allowed_pages") or [])),
+                created_by=request.user,
+            )
+            messages.success(request, f"ادمین «{user.username}» ساخته شد.")
+            return redirect("panel:staff-list")
+        messages.error(request, _form_errors(form))
+    else:
+        form = SiteAdminCreateForm()
+    return render(request, "panel/staff_form.html", _panel_ctx(request, {
+        "form": form,
+        "nav": "command-room",
+    }))
+
+
+@command_room_required
+def staff_edit(request, pk):
+    from django.contrib.auth import get_user_model
+    from .forms import SiteAdminCreateForm
+    from .models import StaffPermission
+    User = get_user_model()
+    user = get_object_or_404(User, pk=pk, is_staff=True)
+    if user.is_superuser:
+        messages.error(request, "حساب سوپریوزر از اینجا ویرایش نمی‌شود.")
+        return redirect("panel:staff-list")
+    perm, _ = StaffPermission.objects.get_or_create(user=user, defaults={"allowed_pages": []})
+    if request.method == "POST":
+        action = request.POST.get("action", "save")
+        if action == "delete":
+            user.delete()
+            messages.success(request, "ادمین حذف شد.")
+            return redirect("panel:staff-list")
+        if action == "toggle_active":
+            user.is_active = not user.is_active
+            user.save(update_fields=["is_active"])
+            messages.success(request, "وضعیت فعال/غیرفعال تغییر کرد.")
+            return redirect("panel:staff-list")
+        if action == "reset_password":
+            pwd = (request.POST.get("new_password") or "").strip()
+            if len(pwd) < 8:
+                messages.error(request, "رمز جدید باید حداقل ۸ کاراکتر باشد.")
+            else:
+                user.set_password(pwd)
+                user.save(update_fields=["password"])
+                messages.success(request, f"رمز «{user.username}» بازنشانی شد.")
+            return redirect("panel:staff-edit", pk=pk)
+        # save access
+        allowed = request.POST.getlist("allowed_pages")
+        valid = {k for k, _ in StaffPermission.PAGE_CHOICES}
+        perm.allowed_pages = sorted(set(a for a in allowed if a in valid))
+        perm.save(update_fields=["allowed_pages", "updated_at"])
+        # optional email update
+        email = (request.POST.get("email") or "").strip()
+        if email != (user.email or ""):
+            user.email = email
+            user.save(update_fields=["email"])
+        messages.success(request, "دسترسی‌ها ذخیره شد.")
+        return redirect("panel:staff-list")
+    return render(request, "panel/staff_edit.html", _panel_ctx(request, {
+        "u": user,
+        "perm": perm,
+        "nav": "command-room",
+    }))
 
 
 # ─── Health API for the dashboard pulse strip ─────────────────────────────
 
-@staff_member_required
+@panel_access_required("guard_settings")
+def guard_settings(request):
+    """Guard level/threshold/block-message panel.
+
+    Reuses GuardSettings singleton; no duplication with AI settings page because
+    these settings belong to a distinct security control surface and deserve
+    their own page + sidebar entry. AI settings grows its own monitoring cards
+    elsewhere (out of scope for this guard upgrade).
+    """
+    from .forms import GuardSettingsForm
+    from .models import GuardSettings
+
+    row = GuardSettings.objects.first()
+    if row is None:
+        row = GuardSettings.objects.create()
+    blocked_count = __import__("chat.models", fromlist=["Conversation"]).Conversation.objects.filter(is_blocked=True).count()
+    if request.method == "POST":
+        form = GuardSettingsForm(request.POST, instance=row)
+        if form.is_valid():
+            form.save()
+            messages.success(request, "تنظیمات نگهبان ذخیره شد.")
+            return redirect("panel:guard-settings")
+        messages.error(request, _form_errors(form))
+    else:
+        form = GuardSettingsForm(instance=row)
+    return render(request, "panel/guard_settings.html", _panel_ctx(request, {
+        "form": form,
+        "row": row,
+        "blocked_count": blocked_count,
+        "nav": "guard-settings",
+        "unblocked_preview": False,
+    }))
+
+
+@panel_access_required("guard_settings")
+@require_POST
+def guard_unblock(request, pk):
+    from .models import Conversation
+    from chat.views import _visitor_block_cache_key, _visitor_key
+    from django.core.cache import cache
+    conv = get_object_or_404(Conversation, pk=pk)
+    vk = (conv.visitor_key or "").strip()
+    conv.is_blocked = False
+    conv.blocked_at = None
+    conv.block_reason = ""
+    conv.guard_attempts = 0
+    conv.save(update_fields=("is_blocked", "blocked_at", "block_reason", "guard_attempts", "updated_at"))
+    try:
+        # Always clear the visitor-key cache for this fingerprint
+        if vk:
+            cache.delete(_visitor_block_cache_key(vk))
+        # Also clear any visitor block that matches the *admin* request
+        # fingerprint (harmless, covers edge where vk was blank/rotated)
+        admin_vk = _visitor_key(request)
+        if admin_vk != vk:
+            cache.delete(_visitor_block_cache_key(admin_vk))
+        # Sweep: if there are still no blocked conversations left for this
+        # visitor fingerprint, ensure the sticky cache is gone. If other
+        # conversations for the same fingerprint remain blocked, keep it.
+        if vk and not Conversation.objects.filter(visitor_key=vk, is_blocked=True).exists():
+            cache.delete(_visitor_block_cache_key(vk))
+    except Exception:
+        pass
+    messages.success(request, f"گفت‌وگوی #{conv.pk} رفع انسداد شد.")
+    # If the operator came from the conversations list (?blocked=1), keep them there
+    nxt = request.POST.get("next") or request.GET.get("next") or ""
+    if "conversations" in nxt:
+        return redirect(nxt)
+    return redirect("panel:guard-settings")
+
+
+@panel_access_required("guard_settings")
+@require_POST
+def guard_unblock_all(request):
+    """Bulk unblock — what the operator actually needs when the list is long.
+
+    Clears every Conversation.is_blocked and wipes every per-visitor sticky
+    cache entry so the widget instantly works again after the next history
+    fetch / refresh (no stale asw_blocked local flag survives).
+    """
+    from .models import Conversation
+    from chat.views import _visitor_block_cache_key
+    from django.core.cache import cache
+    blocked = list(Conversation.objects.filter(is_blocked=True).values_list("visitor_key", flat=True))
+    Conversation.objects.filter(is_blocked=True).update(
+        is_blocked=False, blocked_at=None, block_reason="", guard_attempts=0
+    )
+    # Update updated_at via save would be ideal but bulk update is enough for unblock
+    try:
+        # Use set to avoid duplicate deletes; also clear blank sentinel
+        for vk in set(blocked):
+            if vk:
+                cache.delete(_visitor_block_cache_key(vk))
+        # Belt-and-suspenders: if LocMem/Redis still has stray keys, clear
+        # any guard:visitor-block:* that may have been set under a rotated
+        # fingerprint that no longer matches a row (best-effort, no error if
+        # backend does not support pattern delete).
+        try:
+            # LocMemCache stores _cache dict; Redis backend ignores this.
+            if hasattr(cache, "_cache"):
+                for k in list(getattr(cache, "_cache").keys()):
+                    if isinstance(k, str) and k.startswith("guard:visitor-block:"):
+                        cache.delete(k)
+        except Exception:
+            pass
+    except Exception:
+        pass
+    messages.success(request, f"همهٔ گفت‌وگوهای بلاک‌شده ({len(blocked)} مورد) رفع انسداد شد.")
+    nxt = request.POST.get("next") or ""
+    if "conversations" in nxt:
+        return redirect(nxt)
+    return redirect("panel:guard-settings")
+
+
+@panel_access_required("dashboard")
 def health_summary(request):
     from django.db import connection
 

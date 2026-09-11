@@ -397,12 +397,140 @@ def _record_unanswered(question, reason, intent, conversation=None):
         logger.warning("Failed to record unanswered question", exc_info=True)
 
 
+def _guard_block_enabled(request, conversation) -> tuple[bool, str]:
+    """Return (blocked, block_message) for this conversation or visitor.
+
+    Primary block is per-conversation (is_blocked). Secondary sticky layer is
+    per visitor_key (see _visitor_is_blocked / block_visitor) so that a page
+    refresh / new conversation_id reusing the same visitor fingerprint stays
+    blocked — this is what prevents the refresh-bypass the operator reported.
+
+    Callers always pass the current `request` so the visitor-level check can
+    use the same fingerprinting as conversation creation. Kept backward-compat:
+    a single-arg call (old tests) is still accepted.
+    """
+    # Back-compat: some tests call _guard_block_enabled(conv) without request
+    if isinstance(request, Conversation):
+        request, conversation = None, request  # type: ignore
+    if getattr(conversation, "is_blocked", False):
+        try:
+            from chat.models import GuardSettings
+            row = GuardSettings.objects.first()
+            msg = (row.block_message or "") if row else ""
+            return True, msg.strip() or __import__("rag.injection_guard", fromlist=["DEFAULT_BLOCK_MESSAGE"]).DEFAULT_BLOCK_MESSAGE
+        except Exception:
+            return True, __import__("rag.injection_guard", fromlist=["DEFAULT_BLOCK_MESSAGE"]).DEFAULT_BLOCK_MESSAGE
+    if request is not None and _visitor_is_blocked(request):
+        try:
+            from chat.models import GuardSettings
+            row = GuardSettings.objects.first()
+            msg = (row.block_message or "") if row else ""
+            return True, msg.strip() or __import__("rag.injection_guard", fromlist=["DEFAULT_BLOCK_MESSAGE"]).DEFAULT_BLOCK_MESSAGE
+        except Exception:
+            return True, __import__("rag.injection_guard", fromlist=["DEFAULT_BLOCK_MESSAGE"]).DEFAULT_BLOCK_MESSAGE
+    return False, ""
+
+
+def _visitor_block_cache_key(visitor_key: str) -> str:
+    return f"guard:visitor-block:{visitor_key}"
+
+
+def _visitor_is_blocked(request) -> bool:
+    try:
+        from django.core.cache import cache
+        from chat.models import Conversation
+        vk = _visitor_key(request)
+        if cache.get(_visitor_block_cache_key(vk)):
+            return True
+        # DB fallback: any still-blocked conversation for this fingerprint
+        # keeps the visitor blocked even if the cache entry expired/was
+        # missed — and auto-unblocks when the last such row is cleared.
+        return Conversation.objects.filter(visitor_key=vk, is_blocked=True).exists()
+    except Exception:
+        return False
+
+
+def block_visitor(request):
+    try:
+        from django.core.cache import cache
+        vk = _visitor_key(request)
+        cache.set(_visitor_block_cache_key(vk), True, timeout=60 * 60 * 24 * 7)
+    except Exception:
+        pass
+
+
+def _guard_on_attempt(request, conversation) -> tuple[bool, str]:
+    """Record one injection attempt on the conversation. If the threshold is
+    reached, flip is_blocked and return (blocked_now, block_message). Otherwise
+    (False, '').
+
+    Accepts `request` so the visitor-level sticky block can be set together
+    with the per-conversation block (see block_visitor).
+    """
+    # Back-compat: _guard_on_attempt(conv) from old calls
+    if isinstance(request, Conversation):
+        request, conversation = None, request  # type: ignore
+    try:
+        from chat.models import GuardSettings
+        from django.utils import timezone
+        row = GuardSettings.objects.first()
+        thr = int(row.block_threshold) if row and row.block_threshold else 3
+        thr = max(2, min(20, thr))
+        block_msg = (row.block_message or "").strip() if row else ""
+        if not block_msg:
+            from rag.injection_guard import DEFAULT_BLOCK_MESSAGE
+            block_msg = DEFAULT_BLOCK_MESSAGE
+        # Level off never blocks
+        if row and row.level == "off":
+            return False, ""
+        conversation.guard_attempts = int(getattr(conversation, "guard_attempts", 0) or 0) + 1
+        if conversation.guard_attempts >= thr:
+            conversation.is_blocked = True
+            conversation.blocked_at = timezone.now()
+            conversation.block_reason = "guard_threshold"
+            conversation.save(update_fields=("guard_attempts", "is_blocked", "blocked_at", "block_reason", "updated_at"))
+            if request is not None:
+                block_visitor(request)
+            return True, block_msg
+        conversation.save(update_fields=("guard_attempts", "updated_at"))
+        return False, ""
+    except Exception:
+        return False, ""
+
+
+QUOTA_LOCK_MESSAGE = "چت به‌صورت موقت توسط مدیر سیستم بسته شده است. لطفاً بعداً مراجعه کنید."
+
+
+def _quota_lock_enabled() -> tuple[bool, str]:
+    """Manual chat-close switch (superuser, command room). Returns (locked, message).
+
+    Unlike the guard block this is deployment-wide and temporary — it stays on
+    until the superuser reopens it or the next cycle starts.
+    """
+    try:
+        from .models import SiteProfile
+        sp = SiteProfile.objects.first()
+        if sp and sp.quota_locked:
+            return True, QUOTA_LOCK_MESSAGE
+    except Exception:
+        pass
+    return False, ""
+
+
 def _persist_user_message(conversation, content, intent):
+    from .models import WidgetConfig
+    from .plans import compute_units
+    try:
+        cfg = WidgetConfig.objects.first()
+        size_class = cfg.input_size_class if cfg else "medium"
+    except Exception:
+        size_class = "medium"
     message = Message.objects.create(
         conversation=conversation,
         role="user",
         content=content,
         intent=intent,
+        units=compute_units(content, size_class),
     )
     conversation.message_count += 1
     conversation.last_intent = intent
@@ -575,10 +703,120 @@ def chat(request):
     if validation_error:
         return validation_error
 
+    # Manual chat-close (superuser switch): deployment-wide lock, cheap check.
+    quota_locked, quota_msg = _quota_lock_enabled()
+    if quota_locked:
+        return Response(
+            {
+                "error": "quota_locked",
+                "quota_locked": True,
+                "message": quota_msg,
+                "answer": quota_msg,
+            },
+            status=403,
+        )
+
     config = get_widget_config()
     conversation, _created = _get_or_create_conversation(
         request, data.get("conversation_id", ""), data.get("page_url", "")
     )
+
+    # If this conversation/visitor is already blocked, short-circuit without calling the LLM.
+    blocked, block_msg = _guard_block_enabled(request, conversation)
+    if blocked:
+        intent_b = detect_intent(data["message"])
+        _persist_user_message(conversation, data["message"], intent_b)
+        latency_ms = 0
+        result_b = {
+            "answer": block_msg,
+            "sources": [],
+            "used_fallback": False,
+            "reason": "guard_blocked",
+            "confidence": 0.0,
+        }
+        msg = _persist_assistant_message(conversation, result_b, latency_ms)
+        return Response(
+            {
+                "answer": block_msg,
+                "conversation_id": conversation.conversation_id,
+                "conversation_token": make_conversation_token(conversation.conversation_id),
+                "message_id": msg.pk,
+                "citations": [],
+                "intent": intent_b,
+                "fallback": False,
+                "latency_ms": latency_ms,
+                "rule_actions": [],
+                "guard_blocked": True,
+            },
+            status=403,
+        )
+
+    # Guard: is this message an injection attempt? Count it and possibly block.
+    try:
+        from rag.injection_guard import REFUSAL_MESSAGE, is_injection_attempt  # noqa: F811
+
+        if is_injection_attempt(data["message"]):
+            blocked_now, block_msg2 = _guard_on_attempt(request, conversation)
+            if blocked_now:
+                # Flip to blocked — return the block_message as the final reply
+                intent2 = detect_intent(data["message"])
+                _persist_user_message(conversation, data["message"], intent2)
+                latency_ms = 0
+                result2 = {
+                    "answer": block_msg2,
+                    "sources": [],
+                    "used_fallback": False,
+                    "reason": "guard_blocked",
+                    "confidence": 0.0,
+                }
+                msg2 = _persist_assistant_message(conversation, result2, latency_ms)
+                return Response(
+                    {
+                        "answer": block_msg2,
+                        "conversation_id": conversation.conversation_id,
+                        "conversation_token": make_conversation_token(conversation.conversation_id),
+                        "message_id": msg2.pk,
+                        "citations": [],
+                        "intent": intent2,
+                        "fallback": False,
+                        "latency_ms": latency_ms,
+                        "rule_actions": [],
+                        "guard_blocked": True,
+                    },
+                    status=403,
+                )
+            # Normal refusal (not yet at the threshold)
+            intent_r = detect_intent(data["message"])
+            _persist_user_message(conversation, data["message"], intent_r)
+            from rag.injection_guard import REFUSAL_MESSAGE as _REF  # re-read to satisfy linter
+
+            latency_ms = 0
+            result_r = {
+                "answer": _REF,
+                "sources": [],
+                "used_fallback": False,
+                "reason": "injection_refused",
+                "confidence": 0.0,
+            }
+            msg_r = _persist_assistant_message(conversation, result_r, latency_ms)
+            return Response(
+                {
+                    "answer": _REF,
+                    "conversation_id": conversation.conversation_id,
+                    "conversation_token": make_conversation_token(conversation.conversation_id),
+                    "message_id": msg_r.pk,
+                    "citations": [],
+                    "intent": intent_r,
+                    "fallback": False,
+                    "latency_ms": latency_ms,
+                    "rule_actions": [],
+                    "guard_refused": True,
+                }
+            )
+    except Exception:
+        # Guard failure is non-fatal — fall through to normal handling
+        pass
+
     intent = detect_intent(data["message"])
     _persist_user_message(conversation, data["message"], intent)
     history = _build_history(conversation, config)
@@ -655,10 +893,169 @@ def chat_stream(request):
     if validation_error:
         return validation_error
 
+    # Manual chat-close (superuser switch): deployment-wide lock, cheap check.
+    quota_locked_s, quota_msg_s = _quota_lock_enabled()
+    if quota_locked_s:
+        def quota_locked_stream():
+            yield _sse_event(
+                "done",
+                {
+                    "quota_locked": True,
+                    "message": quota_msg_s,
+                    "answer": quota_msg_s,
+                    "quota_message": quota_msg_s,
+                },
+            )
+
+        response = StreamingHttpResponse(quota_locked_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-store"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
     config = get_widget_config()
     conversation, _created = _get_or_create_conversation(
         request, data.get("conversation_id", ""), data.get("page_url", "")
     )
+
+    # Blocked conversation/visitor short-circuits the stream with a block message.
+    blocked_s, block_msg_s = _guard_block_enabled(request, conversation)
+    if blocked_s:
+        conversation_token = make_conversation_token(conversation.conversation_id)
+        intent_b = detect_intent(data["message"])
+        _persist_user_message(conversation, data["message"], intent_b)
+
+        def blocked_stream():
+            yield _sse_event(
+                "meta",
+                {
+                    "conversation_id": conversation.conversation_id,
+                    "conversation_token": conversation_token,
+                    "intent": intent_b,
+                },
+            )
+            yield _sse_event("token", {"t": block_msg_s})
+            res_b = {
+                "answer": block_msg_s,
+                "sources": [],
+                "used_fallback": False,
+                "reason": "guard_blocked",
+                "confidence": 0.0,
+            }
+            msg = _persist_assistant_message(conversation, res_b, 0)
+            yield _sse_event(
+                "done",
+                {
+                    "message_id": msg.pk,
+                    "conversation_id": conversation.conversation_id,
+                    "conversation_token": conversation_token,
+                    "citations": [],
+                    "fallback": False,
+                    "latency_ms": 0,
+                    "intent": intent_b,
+                    "rule_actions": [],
+                    "guard_blocked": True,
+                },
+            )
+
+        response = StreamingHttpResponse(blocked_stream(), content_type="text/event-stream")
+        response["Cache-Control"] = "no-store"
+        response["X-Accel-Buffering"] = "no"
+        return response
+
+    # Injection attempt: count + possibly block, then stream the appropriate message.
+    try:
+        from rag.injection_guard import is_injection_attempt as _is_inj  # type: ignore
+
+        if _is_inj(data["message"]):
+            blocked_now, block_msg2 = _guard_on_attempt(request, conversation)
+            if blocked_now:
+                conversation_token = make_conversation_token(conversation.conversation_id)
+                intent2 = detect_intent(data["message"])
+                _persist_user_message(conversation, data["message"], intent2)
+
+                def blocked_now_stream():
+                    yield _sse_event(
+                        "meta",
+                        {
+                            "conversation_id": conversation.conversation_id,
+                            "conversation_token": conversation_token,
+                            "intent": intent2,
+                        },
+                    )
+                    yield _sse_event("token", {"t": block_msg2})
+                    res2 = {
+                        "answer": block_msg2,
+                        "sources": [],
+                        "used_fallback": False,
+                        "reason": "guard_blocked",
+                        "confidence": 0.0,
+                    }
+                    msg2 = _persist_assistant_message(conversation, res2, 0)
+                    yield _sse_event(
+                        "done",
+                        {
+                            "message_id": msg2.pk,
+                            "conversation_id": conversation.conversation_id,
+                            "conversation_token": conversation_token,
+                            "citations": [],
+                            "fallback": False,
+                            "latency_ms": 0,
+                            "intent": intent2,
+                            "rule_actions": [],
+                            "guard_blocked": True,
+                        },
+                    )
+
+                response = StreamingHttpResponse(blocked_now_stream(), content_type="text/event-stream")
+                response["Cache-Control"] = "no-store"
+                response["X-Accel-Buffering"] = "no"
+                return response
+            # Refusal (not yet blocked)
+            conversation_token = make_conversation_token(conversation.conversation_id)
+            intent_r = detect_intent(data["message"])
+            _persist_user_message(conversation, data["message"], intent_r)
+            from rag.injection_guard import REFUSAL_MESSAGE as _REF2  # noqa: F811
+
+            def refusal_stream():
+                yield _sse_event(
+                    "meta",
+                    {
+                        "conversation_id": conversation.conversation_id,
+                        "conversation_token": conversation_token,
+                        "intent": intent_r,
+                    },
+                )
+                yield _sse_event("token", {"t": _REF2})
+                res_r = {
+                    "answer": _REF2,
+                    "sources": [],
+                    "used_fallback": False,
+                    "reason": "injection_refused",
+                    "confidence": 0.0,
+                }
+                msg_r = _persist_assistant_message(conversation, res_r, 0)
+                yield _sse_event(
+                    "done",
+                    {
+                        "message_id": msg_r.pk,
+                        "conversation_id": conversation.conversation_id,
+                        "conversation_token": conversation_token,
+                        "citations": [],
+                        "fallback": False,
+                        "latency_ms": 0,
+                        "intent": intent_r,
+                        "rule_actions": [],
+                        "guard_refused": True,
+                    },
+                )
+
+            response = StreamingHttpResponse(refusal_stream(), content_type="text/event-stream")
+            response["Cache-Control"] = "no-store"
+            response["X-Accel-Buffering"] = "no"
+            return response
+    except Exception:
+        pass
+
     intent = detect_intent(data["message"])
     _persist_user_message(conversation, data["message"], intent)
     history = _build_history(conversation, config)
@@ -778,10 +1175,19 @@ def history(request):
         }
         for message in messages
     ]
+    # Let the widget restore blocked UI instantly after a refresh (fixes
+    # "refresh bypass" where a new fetch would otherwise re-enable the box).
+    # Also un-block when the operator cleared the last blocked row — the
+    # sticky visitor cache must not outlive the DB rows.
+    guard_blocked = bool(getattr(conversation, "is_blocked", False)) or _visitor_is_blocked(request)
+    quota_locked_h, quota_msg_h = _quota_lock_enabled()
     response = Response(
         {
             "conversation_id": conversation.conversation_id,
             "messages": payload,
+            "guard_blocked": guard_blocked,
+            "quota_locked": quota_locked_h,
+            "quota_message": quota_msg_h if quota_locked_h else "",
         }
     )
     response["Cache-Control"] = "no-store"
